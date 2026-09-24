@@ -78,9 +78,12 @@ export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(() => !getSupabase());
   const userIdRef = useRef<string | null>(null);
+  const recordsRef = useRef<HTMLElement | null>(null);
+  const pendingRecordsFocus = useRef(false);
   const [tab, setTab] = useState("overview");
   const [profile, setProfile] = useState<Profile>({});
   const [sig, setSig] = useState<Significance>({});
+  const [savedMeta, setSavedMeta] = useState(() => JSON.stringify({ profile: {}, sig: {} }));
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState("");
@@ -97,6 +100,7 @@ export default function Home() {
   const [periodFilter, setPeriodFilter] = useState("all");
   const [scopeFilter, setScopeFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [mismatchOnly, setMismatchOnly] = useState(false);
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogScope, setCatalogScope] = useState("all");
   const [expandedCategory, setExpandedCategory] = useState<number | null>(null);
@@ -109,6 +113,14 @@ export default function Home() {
       if (next?.id !== userIdRef.current) {
         userIdRef.current = next?.id ?? null;
         setProfile({}); setSig({}); setEntries([]); setLoading(!!next);
+        setSavedMeta(JSON.stringify({ profile: {}, sig: {} }));
+        pendingRecordsFocus.current = false;
+        setForm(freshDraft()); setTab("overview"); setEditId(null); setSelectedFactor(null);
+        setFactorQuery(""); setFactorPickerOpen(true); setAdvancedOpen(false); setCustomFactor(false);
+        setQuery(""); setPeriodFilter("all"); setScopeFilter("all"); setCategoryFilter("all");
+        setMismatchOnly(false); setCatalogQuery(""); setCatalogScope("all");
+        setExpandedCategory(null); setConfirmId(null); setNotice(""); setFailure("");
+        setSaving(false);
       }
       setUser(next);
       setAuthReady(true);
@@ -122,20 +134,24 @@ export default function Home() {
     return () => subscription.unsubscribe();
   }, []);
 
-  async function reload() {
+  async function reload(includeMeta = true) {
     const supabase = getSupabase();
     if (!supabase || !user) return;
     setLoading(true);
     setFailure("");
     try {
       const [p, a] = await Promise.all([
-        supabase.from("profiles").select("payload,significance").eq("user_id", user.id).maybeSingle(),
+        includeMeta ? supabase.from("profiles").select("payload,significance").eq("user_id", user.id).maybeSingle() : Promise.resolve(null),
         supabase.from("activities").select("id,period,scope,date,title,quantity,unit,factor,factor_name,factor_source,factor_row,notes,scope3_category").eq("user_id", user.id).order("date", { ascending: false }).order("created_at", { ascending: false }),
       ]);
-      if (p.error || a.error) throw new Error(p.error?.message || a.error?.message || "โหลดข้อมูลไม่สำเร็จ");
+      if (p?.error || a.error) throw new Error(p?.error?.message || a.error?.message || "โหลดข้อมูลไม่สำเร็จ");
       if (userIdRef.current !== user.id) return;
-      setProfile((p.data?.payload || {}) as Profile);
-      setSig((p.data?.significance || {}) as Significance);
+      if (p) {
+        const loadedProfile = (p.data?.payload || {}) as Profile;
+        const loadedSig = (p.data?.significance || {}) as Significance;
+        setProfile(loadedProfile); setSig(loadedSig);
+        setSavedMeta(JSON.stringify({ profile: loadedProfile, sig: loadedSig }));
+      }
       setEntries((a.data || []).map(row => ({
         id: row.id, period: row.period as Entry["period"], scope: row.scope,
         date: row.date, title: row.title, quantity: Number(row.quantity),
@@ -154,6 +170,12 @@ export default function Home() {
     // reload uses the current user after an auth change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
+  useEffect(() => {
+    if (tab !== "activities" || loading || !pendingRecordsFocus.current) return;
+    pendingRecordsFocus.current = false;
+    const frame = window.requestAnimationFrame(() => recordsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [tab, loading, periodFilter, scopeFilter, categoryFilter, mismatchOnly]);
 
   const totals = useMemo(() => {
     const values = { current: [0, 0, 0, 0, 0], base: [0, 0, 0, 0, 0] };
@@ -166,10 +188,19 @@ export default function Home() {
   const baseCount = entries.filter(e => e.period === "base").length;
   const setup = [!!profile.organization && !!profile.reportingYear, !!profile.activeFactors?.length, entries.length > 0];
   const completed = setup.filter(Boolean).length;
+  const metaDirty = !loading && JSON.stringify({ profile, sig }) !== savedMeta;
+  const organizationSummary = ([
+    ["ผู้จัดทำ", profile.preparer], ["สถานที่ติดต่อ", profile.address],
+    ["กิจกรรมและพื้นที่", profile.activities], ["หน่วยงานที่เกี่ยวข้อง", profile.department],
+    ["ผู้รวบรวมและอนุมัติ", profile.responsibility],
+    ["แหล่งปล่อย Scope 1", profile.boundary1], ["แหล่งปล่อย Scope 2", profile.boundary2],
+    ["แหล่งปล่อย Scope 3", profile.boundary3],
+  ] as [string, string | undefined][]).filter(([, value]) => !!value?.trim());
   const filteredEntries = entries.filter(e =>
     (periodFilter === "all" || e.period === periodFilter) &&
     (scopeFilter === "all" || String(e.scope) === scopeFilter) &&
     (categoryFilter === "all" || e.scope3Category === categoryFilter) &&
+    (!mismatchOnly || !dateMatchesPeriod(e.date, e.period === "base" ? profile.baseYear || "" : profile.reportingYear || "")) &&
     (!query || [e.title, e.factorName, e.notes].join(" ").toLowerCase().includes(query.toLowerCase()))
   );
   const allowed = factors.filter(f => (profile.activeFactors || []).includes(f.id));
@@ -195,9 +226,11 @@ export default function Home() {
         user_id: user.id, payload: profile, significance: sig, updated_at: new Date().toISOString(),
       }, { onConflict: "user_id" });
       if (error) throw error;
+      if (userIdRef.current !== user.id) return;
+      setSavedMeta(JSON.stringify({ profile, sig }));
       setNotice("บันทึกข้อมูลเรียบร้อย");
-    } catch (error) { setFailure(error instanceof Error ? error.message : "บันทึกไม่สำเร็จ"); }
-    finally { setSaving(false); }
+    } catch (error) { if (userIdRef.current === user.id) setFailure(error instanceof Error ? error.message : "บันทึกไม่สำเร็จ"); }
+    finally { if (userIdRef.current === user.id) setSaving(false); }
   }
   async function chooseCatalogFactor(f: Factor) {
     const supabase = getSupabase();
@@ -209,12 +242,14 @@ export default function Home() {
         user_id: user.id, payload: nextProfile, significance: sig, updated_at: new Date().toISOString(),
       }, { onConflict: "user_id" });
       if (error) throw error;
+      if (userIdRef.current !== user.id) return;
       setProfile(nextProfile);
+      setSavedMeta(JSON.stringify({ profile: nextProfile, sig }));
       setNotice("บันทึกค่า EF ที่บริษัทเลือกใช้แล้ว");
       selectFactor(f); go("activities");
     } catch (error) {
-      setFailure(error instanceof Error ? error.message : "เลือกค่า EF ไม่สำเร็จ");
-    } finally { setSaving(false); }
+      if (userIdRef.current === user.id) setFailure(error instanceof Error ? error.message : "เลือกค่า EF ไม่สำเร็จ");
+    } finally { if (userIdRef.current === user.id) setSaving(false); }
   }
   function selectFactor(f: Factor) {
     const previousFactorName = selectedFactor?.name;
@@ -271,10 +306,11 @@ export default function Home() {
         ? await supabase.from("activities").update(record).eq("id", editId).eq("user_id", user.id).select("id").single()
         : await supabase.from("activities").insert({ ...record, id: crypto.randomUUID(), user_id: user.id }).select("id").single();
       if (result.error) throw result.error;
+      if (userIdRef.current !== user.id) return;
       resetDraft(); setNotice(editId ? "แก้ไขรายการเรียบร้อย" : "บันทึกรายการเรียบร้อย");
-      await reload();
-    } catch (error) { setFailure(error instanceof Error ? error.message : "บันทึกไม่สำเร็จ"); }
-    finally { setSaving(false); }
+      await reload(false);
+    } catch (error) { if (userIdRef.current === user.id) setFailure(error instanceof Error ? error.message : "บันทึกไม่สำเร็จ"); }
+    finally { if (userIdRef.current === user.id) setSaving(false); }
   }
   function startEdit(e: Entry) {
     setForm({ period: e.period, scope: e.scope, date: e.date, title: e.title,
@@ -292,25 +328,48 @@ export default function Home() {
     try {
       const { error } = await supabase.from("activities").delete().eq("id", id).eq("user_id", user.id).select("id").single();
       if (error) throw error;
-      setConfirmId(null); setNotice("ลบรายการเรียบร้อย"); await reload();
-    } catch (error) { setFailure(error instanceof Error ? error.message : "ลบไม่สำเร็จ"); }
-    finally { setSaving(false); }
+      if (userIdRef.current !== user.id) return;
+      setConfirmId(null); setNotice("ลบรายการเรียบร้อย"); await reload(false);
+    } catch (error) { if (userIdRef.current === user.id) setFailure(error instanceof Error ? error.message : "ลบไม่สำเร็จ"); }
+    finally { if (userIdRef.current === user.id) setSaving(false); }
   }
   function exportCSV() {
-    const head = ["ปี", "วันที่", "ขอบเขต", "หมวด Scope 3", "รายการ", "ปริมาณ", "หน่วย", "ค่า EF (kgCO2e/หน่วย)", "การปล่อย (tCO2e)", "ชื่อปัจจัย", "แหล่งอ้างอิง", "แถวในไฟล์", "หมายเหตุ"];
-    const escape = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
-    const rows = [head, ...entries.map(e => [e.period === "base" ? profile.baseYear || "ปีฐาน" : profile.reportingYear || "ปีรายงาน", e.date, e.scope, thCategories[categories.indexOf(e.scope3Category)] || "", e.title, e.quantity, e.unit, e.factor, total(e), e.factorName, e.factorSource, e.factorRow, e.notes])];
-    const blob = new Blob(["\uFEFF" + rows.map(row => row.map(escape).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob); const a = document.createElement("a");
-    a.href = url; a.download = "carbon-inventory.csv"; a.click(); URL.revokeObjectURL(url);
+    setFailure(""); setNotice("");
+    try {
+      const head = ["ปี", "วันที่", "ขอบเขต", "หมวด Scope 3", "รายการ", "ปริมาณ", "หน่วย", "ค่า EF (kgCO2e/หน่วย)", "การปล่อย (tCO2e)", "ชื่อปัจจัย", "แหล่งอ้างอิง", "แถวในไฟล์", "หมายเหตุ"];
+      const escape = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+      const rows = [head, ...entries.map(e => [e.period === "base" ? profile.baseYear || "ปีฐาน" : profile.reportingYear || "ปีรายงาน", e.date, e.scope, thCategories[categories.indexOf(e.scope3Category)] || "", e.title, e.quantity, e.unit, e.factor, total(e), e.factorName, e.factorSource, e.factorRow, e.notes])];
+      const blob = new Blob(["\uFEFF" + rows.map(row => row.map(escape).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob); const a = document.createElement("a");
+      a.href = url; a.download = "carbon-inventory.csv"; a.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setNotice(`เริ่มดาวน์โหลด carbon-inventory.csv (${entries.length} รายการ)`);
+    } catch (error) { setFailure(error instanceof Error ? error.message : "ส่งออก CSV ไม่สำเร็จ"); }
+  }
+  async function signOut() {
+    setFailure(""); setNotice("");
+    try {
+      const { error } = await getSupabase()!.auth.signOut();
+      if (error) throw error;
+    } catch (error) { setFailure(`ออกจากระบบไม่สำเร็จ: ${error instanceof Error ? error.message : "กรุณาลองใหม่"}`); }
+  }
+  function toggleCatalogFactor(f: Factor, checked: boolean) {
+    setProfile(p => ({ ...p, activeFactors: checked ? [...new Set([...(p.activeFactors || []), f.id])] : (p.activeFactors || []).filter(id => id !== f.id) }));
+    if (!checked && !editId && selectedFactor?.id === f.id) {
+      setSelectedFactor(null); setFactorPickerOpen(true);
+      setForm(v => ({ ...v, title: v.title === f.name ? "" : v.title,
+        unit: "", factor: "", factorName: "", factorSource: "", factorRow: "" }));
+    }
   }
   const field = (key: ProfileField, label: string, placeholder = "", type = "text") =>
     <label className="field" key={key}><span>{label}</span><input type={type} min={type === "number" ? "0" : undefined}
       value={profile[key] || ""} placeholder={placeholder}
       onChange={e => setProfile(p => ({ ...p, [key]: e.target.value }))} /></label>;
   const go = (value: string) => { setTab(value); window.scrollTo({ top: 0, behavior: "smooth" }); };
-  const openEntries = (scope = "all", period = "all", category = "all") => {
-    setScopeFilter(scope); setPeriodFilter(period); setCategoryFilter(category); setQuery(""); go("activities");
+  const openEntries = (scope = "all", period = "all", category = "all", onlyMismatches = false) => {
+    pendingRecordsFocus.current = true;
+    setScopeFilter(scope); setPeriodFilter(period); setCategoryFilter(category);
+    setMismatchOnly(onlyMismatches); setQuery(""); go("activities");
   };
   const addScopedEntry = (scope: number, category = "") => {
     resetDraft();
@@ -327,15 +386,15 @@ export default function Home() {
       <div className="brand"><span className="mark"><Leaf size={21} /></span><span><strong>Carbon Ledger</strong><small>บัญชีคาร์บอนองค์กร</small></span></div>
       <div className="rail-section-label">ขั้นตอนการทำงาน</div>
       <div className="rail-steps">
-        <button onClick={() => go("organization")}><span className={setup[0] ? "step-done" : "step-number"}>{setup[0] ? <Check size={15} /> : "01"}</span><span>ข้อมูลองค์กร<small>ระบุชื่อและปีรายงาน</small></span></button>
-        <button onClick={() => go("factors")}><span className={setup[1] ? "step-done" : "step-number"}>{setup[1] ? <Check size={15} /> : "02"}</span><span>ค่า EF ที่ใช้<small>เลือกปัจจัยของบริษัท</small></span></button>
-        <button onClick={() => go("activities")}><span className={setup[2] ? "step-done" : "step-number"}>{setup[2] ? <Check size={15} /> : "03"}</span><span>บันทึกกิจกรรม<small>กรอกปริมาณจริง</small></span></button>
+        <button className={tab === "organization" ? "is-active" : undefined} aria-current={tab === "organization" ? "page" : undefined} onClick={() => go("organization")}><span className={setup[0] ? "step-done" : "step-number"}>{setup[0] ? <Check size={15} /> : "01"}</span><span>ข้อมูลองค์กร<small>ระบุชื่อและปีรายงาน</small></span></button>
+        <button className={tab === "factors" ? "is-active" : undefined} aria-current={tab === "factors" ? "page" : undefined} onClick={() => go("factors")}><span className={setup[1] ? "step-done" : "step-number"}>{setup[1] ? <Check size={15} /> : "02"}</span><span>ค่า EF ที่ใช้<small>เลือกปัจจัยของบริษัท</small></span></button>
+        <button className={tab === "activities" ? "is-active" : undefined} aria-current={tab === "activities" ? "page" : undefined} onClick={() => go("activities")}><span className={setup[2] ? "step-done" : "step-number"}>{setup[2] ? <Check size={15} /> : "03"}</span><span>บันทึกกิจกรรม<small>กรอกปริมาณจริง</small></span></button>
       </div>
       <div className="rail-progress"><div><span>ความพร้อมของข้อมูล</span><strong>{completed}/3</strong></div><div className="progress-track"><span style={{ width: `${completed / 3 * 100}%` }} /></div></div>
       <div className="rail-bottom"><span className="source-dot" /> ข้อมูลส่วนตัวของบัญชีนี้</div>
     </aside>
     <div className="workspace">
-      <header className="topbar"><div className="crumb"><span>บัญชีคาร์บอน</span><ChevronRight size={15} /><b>{profile.organization || "องค์กรของคุณ"}</b></div><div className="account-actions"><span className="privacy"><span className="source-dot" /> {user.email}</span><button className="signout" onClick={() => void getSupabase()?.auth.signOut()}>ออกจากระบบ</button></div></header>
+      <header className="topbar"><div className="crumb"><span>บัญชีคาร์บอน</span><ChevronRight size={15} /><b>{profile.organization || "องค์กรของคุณ"}</b></div><div className="account-actions"><span className="privacy"><span className="source-dot" /> {user.email}</span><button className="signout" onClick={() => void signOut()}>ออกจากระบบ</button></div></header>
       <Tabs value={tab} onValueChange={setTab} className="main-tabs">
         <div className="page-head"><div><div className="eyebrow">CARBON FOOTPRINT OF ORGANIZATION</div><h1>{tab === "overview" ? "ภาพรวมการปล่อยก๊าซเรือนกระจก" : tab === "activities" ? "บันทึกกิจกรรม" : tab === "organization" ? "ข้อมูลองค์กร" : tab === "significance" ? "ประเมิน Scope 3" : "คลังค่า EF"}</h1><p>{profile.organization || "ตั้งค่าข้อมูลองค์กรเพื่อเริ่มจัดทำบัญชีการปล่อย"}{profile.reportingYear ? ` · ${profile.reportingYear}` : ""}</p></div><div className="head-actions"><button className="btn ghost export-button" onClick={exportCSV} disabled={!entries.length}><Download size={17} /> ส่งออก CSV</button><button className="btn primary" onClick={() => { resetDraft(); go("activities"); }}><Plus size={18} /> เพิ่มรายการ</button></div></div>
         <TabsList className="navigation" aria-label="หน้าของแบบฟอร์ม">
@@ -346,10 +405,11 @@ export default function Home() {
           <TabsTrigger value="factors"><Database size={17} /> ค่า EF</TabsTrigger>
         </TabsList>
         {failure && <div className="message error" role="alert"><TriangleAlert size={18} /><span>{failure}</span><button onClick={() => setFailure("")}>ปิด</button></div>}
-        {notice && <div className="message success" role="status"><Check size={18} /><span>{notice}</span><button onClick={() => setNotice("")}>ปิด</button></div>}
+        {notice && (!metaDirty || !["บันทึกข้อมูลเรียบร้อย", "บันทึกค่า EF ที่บริษัทเลือกใช้แล้ว"].includes(notice)) && <div className="message success" role="status"><Check size={18} /><span>{notice}</span><button onClick={() => setNotice("")}>ปิด</button></div>}
+        {metaDirty && <div className="message pending" role="status"><Info size={18} /><span>มีการเปลี่ยนแปลงที่ยังไม่บันทึกในข้อมูลองค์กร, Scope 3 หรือค่า EF</span><button disabled={saving} onClick={() => void saveMeta()}>{saving ? "กำลังบันทึก…" : "บันทึกตอนนี้"}</button></div>}
         {loading ? <div className="panel loading">กำลังโหลดข้อมูล…</div> : <>
           <TabsContent value="overview" className="tab-content">
-            {periodMismatches.length > 0 && <div className="message error" role="status"><TriangleAlert size={18} /><span>พบ {periodMismatches.length} รายการที่วันที่ไม่ตรงกับช่วงปีรายงาน/ปีฐาน กรุณาตรวจสอบก่อนใช้ผลสรุป</span><button onClick={() => openEntries()}>ตรวจรายการ</button></div>}
+            {periodMismatches.length > 0 && <div className="message error" role="status"><TriangleAlert size={18} /><span>พบ {periodMismatches.length} รายการที่วันที่ไม่ตรงกับช่วงปีรายงาน/ปีฐาน กรุณาตรวจสอบก่อนใช้ผลสรุป</span><button onClick={() => openEntries("all", "all", "all", true)}>ตรวจรายการ</button></div>}
             {completed < 3 && <section className="getting-started"><div className="getting-copy"><span className="section-kicker">เริ่มต้นใช้งาน</span><h2>จัดทำข้อมูลเป็น 3 ขั้นตอน</h2><p>ตั้งค่าพื้นฐาน เลือกปัจจัยที่ใช้ แล้วบันทึกปริมาณกิจกรรมจริง</p></div><div className="getting-actions">
               {!setup[0] ? <button className="btn primary" onClick={() => go("organization")}>กรอกข้อมูลองค์กร <ArrowRight size={17} /></button> : !setup[1] ? <button className="btn primary" onClick={() => go("factors")}>เลือกค่า EF <ArrowRight size={17} /></button> : <button className="btn primary" onClick={() => go("activities")}>เพิ่มรายการแรก <ArrowRight size={17} /></button>}
               <span>{completed} จาก 3 ขั้นตอน</span>
@@ -362,7 +422,7 @@ export default function Home() {
               <section className="panel proportions"><div className="panel-head"><div><h3>สัดส่วนการปล่อย</h3><p>เปรียบเทียบแต่ละ Scope ของปีรายงาน</p></div><span className="panel-tag">Scope 1–3</span></div>
                 {reportCount ? <div className="bars">{[1, 2, 3].map(i => <div className="bar-row" key={i}><div className="bar-caption"><span><span className={`legend-dot s${i}`} /> Scope {i}</span><b>{fmt(totals.current[i], 3)} <small>tCO₂e</small></b></div><div className="bar-track"><div className={`bar-fill s${i}`} style={{ width: `${current ? totals.current[i] / current * 100 : 0}%` }} /></div><small>{current ? fmt(totals.current[i] / current * 100, 1) : "0.0"}% ของทั้งหมด</small></div>)}</div> : <div className="empty"><span className="empty-icon"><ChartNoAxesColumn size={23} /></span><strong>ยังไม่มีรายการในปีรายงาน</strong><p>เพิ่มปริมาณเชื้อเพลิง ไฟฟ้า หรือกิจกรรมที่องค์กรมี</p><button className="btn secondary" onClick={() => go("activities")}>เริ่มบันทึก <ArrowRight size={16} /></button></div>}
               </section>
-              <section className="panel recent"><div className="panel-head"><div><h3>รายการล่าสุด</h3><p>ข้อมูลกิจกรรมที่บันทึกแล้ว</p></div><button className="text-button" onClick={() => go("activities")}>ดูทั้งหมด <ChevronRight size={16} /></button></div>
+              <section className="panel recent"><div className="panel-head"><div><h3>รายการล่าสุด</h3><p>ข้อมูลกิจกรรมที่บันทึกแล้ว</p></div><button className="text-button" onClick={() => openEntries()}>ดูทั้งหมด <ChevronRight size={16} /></button></div>
                 {entries.length ? <div className="recent-list">{entries.slice(0, 4).map(e => <div className="recent-row" key={e.id}><div className={`recent-icon s${e.scope}`}><Activity size={17} /></div><div><strong>{e.title}</strong><span>{e.period === "base" ? "ปีฐาน" : "ปีรายงาน"} · Scope {e.scope === 4 ? "แยก" : e.scope} · {e.date}</span></div><b>{fmt(total(e), 3)}</b></div>)}</div> : <div className="empty"><span className="empty-icon"><FileText size={23} /></span><strong>ยังไม่มีรายการที่บันทึก</strong><p>รายการที่เพิ่มจะปรากฏที่นี่และรวมในผลคำนวณ</p></div>}
               </section>
             </div>
@@ -371,6 +431,9 @@ export default function Home() {
               <section className="panel intensity-panel"><div className="panel-head"><div><h3>ความเข้มการปล่อย</h3><p>ผลการปล่อย ÷ ผลผลิตของแต่ละปี</p></div><span className="panel-tag">tCO₂e / {profile.outputUnit || "หน่วย"}</span></div><div className="intensity"><span>Scope 1 + 2 · ปีรายงาน</span><strong>{Number(profile.output) > 0 ? fmt((totals.current[1] + totals.current[2]) / Number(profile.output), 4) : "—"}</strong></div><div className="intensity"><span>Scope 1 + 2 + 3 · ปีรายงาน</span><strong>{Number(profile.output) > 0 ? fmt(current / Number(profile.output), 4) : "—"}</strong></div>{baseCount > 0 && <div className="intensity"><span>Scope 1 + 2 + 3 · ปีฐาน</span><strong>{Number(profile.baseOutput) > 0 ? fmt(base / Number(profile.baseOutput), 4) : "—"}</strong></div>}{(!Number(profile.output) || (baseCount > 0 && !Number(profile.baseOutput))) && <button className="text-button" onClick={() => go("organization")}>ระบุผลผลิตเพื่อคำนวณ <ArrowRight size={15} /></button>}</section>
               <section className="panel separate-panel"><div className="panel-head"><div><h3>การปล่อยที่รายงานแยก</h3><p>เช่น CO₂ จากเชื้อเพลิงชีวภาพ</p></div></div><div className="other-number">{fmt(totals.current[4], 3)} <small>tCO₂e</small></div><p className="hint">ไม่รวมในยอด Scope 1–3</p><button className="text-button panel-link" onClick={() => openEntries("4", "current")}>ดูรายการ <ArrowRight size={14} /></button></section>
             </div>
+            <section className="panel organization-summary"><div className="panel-head"><div><h3>ข้อมูลประกอบรายงาน</h3><p>{profile.organization || "ยังไม่ระบุชื่อองค์กร"} · {organizationSummary.length} หัวข้อที่กรอกแล้ว</p></div><button className="text-button" onClick={() => go("organization")}>แก้ไขข้อมูลองค์กร <ArrowRight size={15} /></button></div>
+              {organizationSummary.length ? <div className="summary-grid">{organizationSummary.map(([label, value]) => <div className="summary-item" key={label}><small>{label}</small><span>{value}</span></div>)}</div> : <p className="hint">ระบุผู้จัดทำ ขอบเขตแหล่งปล่อย และผู้รับผิดชอบในหน้าข้อมูลองค์กร</p>}
+            </section>
           </TabsContent>
           <TabsContent value="activities" className="tab-content">
             <div className="section-line"><div><span className="section-kicker">FR-04.1 / FR-04.2</span><h2>เพิ่มกิจกรรมและดูผลคำนวณ</h2><p>เลือกปัจจัยที่ตรงกับกิจกรรม ใส่ปริมาณ แล้วบันทึก</p></div><span className="year-chip">{entries.length} รายการทั้งหมด</span></div>
@@ -404,8 +467,9 @@ export default function Home() {
                   <div className="form-actions"><button type="submit" className="btn primary" disabled={saving}><Save size={17} /> {saving ? "กำลังบันทึก…" : editId ? "บันทึกการแก้ไข" : "บันทึกรายการ"}</button></div>
                 </form>
               </section>
-              <section className="panel records"><div className="panel-head"><div><h3>รายการที่บันทึก</h3><p>{filteredEntries.length} จาก {entries.length} รายการ</p></div></div><div className="record-filters"><div className="search-box"><Search size={16} /><input aria-label="ค้นหารายการ" placeholder="ค้นหารายการ" value={query} onChange={e => setQuery(e.target.value)} /></div><NativeSelect aria-label="กรองช่วงข้อมูล" value={periodFilter} onChange={e => setPeriodFilter(e.target.value)}><option value="all">ทุกปี</option><option value="current">ปีรายงาน</option><option value="base">ปีฐาน</option></NativeSelect><NativeSelect aria-label="กรองขอบเขต" value={scopeFilter} onChange={e => { setScopeFilter(e.target.value); setCategoryFilter("all"); }}><option value="all">ทุก Scope</option>{[1, 2, 3, 4].map(i => <option key={i} value={i}>{i === 4 ? "รายงานแยก" : `Scope ${i}`}</option>)}</NativeSelect>{scopeFilter === "3" && <NativeSelect aria-label="กรองหมวด Scope 3" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}><option value="all">ทุกหมวด Scope 3</option>{categories.map((cat, i) => <option key={cat} value={cat}>{thCategories[i]}</option>)}</NativeSelect>}</div>
-                {filteredEntries.length ? <div className="record-list">{filteredEntries.map(e => <article className="record" key={e.id}><div className="record-top"><span className={`badge s${e.scope}`}>{e.scope === 4 ? "แยก" : `S${e.scope}`}</span><strong>{e.title}</strong></div><div className="record-value">{fmt(total(e), 4)} <small>tCO₂e</small></div><div className="record-sub">{e.period === "base" ? "ปีฐาน" : "ปีรายงาน"} · {e.date} · {fmt(e.quantity, 3)} {e.unit}</div>{e.scope === 3 && <div className="record-sub">หมวด {thCategories[categories.indexOf(e.scope3Category)] || "ยังไม่ระบุ"}</div>}<div className="record-source">EF {fmt(e.factor, 6)} · {e.factorRow || e.factorName}</div><div className="record-actions"><button onClick={() => startEdit(e)}>แก้ไข</button><button className="delete" onClick={() => setConfirmId(e.id)}><Trash2 size={15} /> ลบ</button></div>{confirmId === e.id && <div className="confirm"><span>ยืนยันลบรายการนี้?</span><button onClick={() => setConfirmId(null)}>ยกเลิก</button><button className="danger" disabled={saving} onClick={() => void remove(e.id)}>ลบรายการ</button></div>}</article>)}</div> : <div className="empty"><span className="empty-icon"><ClipboardList size={23} /></span><strong>{entries.length ? "ไม่พบรายการที่ค้นหา" : "ยังไม่มีรายการ"}</strong><p>{entries.length ? "ลองเปลี่ยนคำค้นหาหรือตัวกรอง" : "เมื่อบันทึกกิจกรรม รายการจะแสดงที่นี่"}</p></div>}
+              <section className="panel records" ref={recordsRef}><div className="panel-head"><div><h3>รายการที่บันทึก</h3><p>{filteredEntries.length} จาก {entries.length} รายการ</p></div></div><div className="record-filters"><div className="search-box"><Search size={16} /><input aria-label="ค้นหารายการ" placeholder="ค้นหารายการ" value={query} onChange={e => setQuery(e.target.value)} /></div><NativeSelect aria-label="กรองช่วงข้อมูล" value={periodFilter} onChange={e => setPeriodFilter(e.target.value)}><option value="all">ทุกปี</option><option value="current">ปีรายงาน</option><option value="base">ปีฐาน</option></NativeSelect><NativeSelect aria-label="กรองขอบเขต" value={scopeFilter} onChange={e => { setScopeFilter(e.target.value); setCategoryFilter("all"); }}><option value="all">ทุก Scope</option>{[1, 2, 3, 4].map(i => <option key={i} value={i}>{i === 4 ? "รายงานแยก" : `Scope ${i}`}</option>)}</NativeSelect>{scopeFilter === "3" && <NativeSelect aria-label="กรองหมวด Scope 3" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}><option value="all">ทุกหมวด Scope 3</option>{categories.map((cat, i) => <option key={cat} value={cat}>{thCategories[i]}</option>)}</NativeSelect>}</div>
+                {mismatchOnly && <div className="active-filter"><TriangleAlert size={15} /><span>แสดงเฉพาะวันที่ไม่ตรงช่วงปี ({filteredEntries.length} รายการ)</span><button onClick={() => setMismatchOnly(false)}>แสดงทั้งหมด</button></div>}
+                {filteredEntries.length ? <div className="record-list">{filteredEntries.map(e => <article className="record" key={e.id}><div className="record-top"><span className={`badge s${e.scope}`}>{e.scope === 4 ? "แยก" : `S${e.scope}`}</span><strong>{e.title}</strong></div><div className="record-value">{fmt(total(e), 4)} <small>tCO₂e</small></div><div className="record-sub">{e.period === "base" ? "ปีฐาน" : "ปีรายงาน"} · {e.date} · {fmt(e.quantity, 3)} {e.unit}</div>{!dateMatchesPeriod(e.date, e.period === "base" ? profile.baseYear || "" : profile.reportingYear || "") && <div className="record-warning"><TriangleAlert size={14} /> วันที่ไม่ตรงกับ{e.period === "base" ? "ปีฐาน" : "ปีรายงาน"} {e.period === "base" ? profile.baseYear : profile.reportingYear}</div>}{e.scope === 3 && <div className="record-sub">หมวด {thCategories[categories.indexOf(e.scope3Category)] || "ยังไม่ระบุ"}</div>}<div className="record-source">EF {fmt(e.factor, 6)} · {e.factorRow || e.factorName}</div>{e.factorSource && <div className="record-sub">แหล่ง EF: {e.factorSource}</div>}{e.notes && <div className="record-note">หลักฐาน / หมายเหตุ: {e.notes}</div>}<div className="record-actions"><button onClick={() => startEdit(e)}>แก้ไข</button><button className="delete" onClick={() => setConfirmId(e.id)}><Trash2 size={15} /> ลบ</button></div>{confirmId === e.id && <div className="confirm"><span>ยืนยันลบรายการนี้?</span><button onClick={() => setConfirmId(null)}>ยกเลิก</button><button className="danger" disabled={saving} onClick={() => void remove(e.id)}>ลบรายการ</button></div>}</article>)}</div> : <div className="empty"><span className="empty-icon"><ClipboardList size={23} /></span><strong>{mismatchOnly && periodMismatches.length === 0 ? "แก้ไขวันที่ครบแล้ว" : entries.length ? "ไม่พบรายการที่ค้นหา" : "ยังไม่มีรายการ"}</strong><p>{mismatchOnly && periodMismatches.length === 0 ? "ไม่มีรายการที่วันที่ไม่ตรงช่วงปีแล้ว" : entries.length ? "ลองเปลี่ยนคำค้นหาหรือตัวกรอง" : "เมื่อบันทึกกิจกรรม รายการจะแสดงที่นี่"}</p></div>}
               </section>
             </div>
           </TabsContent>
@@ -420,14 +484,14 @@ export default function Home() {
           <TabsContent value="significance" className="tab-content">
             <div className="section-line"><div><span className="section-kicker">FR-03.2 · SCOPE 3</span><h2>เลือกกิจกรรมทางอ้อมที่เกี่ยวข้อง</h2><p>เริ่มจากระบุว่าบริษัทมีแหล่งปล่อยประเภทใด แล้วขยายเฉพาะหมวดที่ต้องประเมิน</p></div><button className="btn primary" disabled={saving} onClick={() => void saveMeta()}><Save size={17} /> บันทึกผลประเมิน</button></div>
             <div className="scope-intro"><span className="intro-icon"><CircleHelp size={21} /></span><div><strong>เลือกแล้ว {chosenCategories} จาก 15 หมวด</strong><p>หมวดที่มีรายการบันทึกแล้วจะถูกนับว่ามีในองค์กร และกดดูรายการที่เชื่อมกันได้</p></div></div>
-            <div className="sig-list">{categories.map((cat, i) => { const item = sig[cat] || {}; const open = expandedCategory === i; const hasEntries = categoryCounts[cat] > 0; return <article className={`sig-card ${item.present || hasEntries ? "is-selected" : ""}`} key={cat}><div className="sig-main"><span className="sig-index">{String(i + 1).padStart(2, "0")}</span><div className="sig-name"><strong>{thCategories[i]}</strong><small>{cat}{hasEntries ? ` · ${categoryCounts[cat]} รายการที่บันทึก` : ""}</small></div><label className="check"><input type="checkbox" checked={!!item.present || hasEntries} disabled={hasEntries} onChange={e => setSig(s => ({ ...s, [cat]: { ...item, present: e.target.checked } }))} /> มีในองค์กร</label>{(item.present || hasEntries) && <button type="button" className="text-button" onClick={() => addScopedEntry(3, cat)}>เพิ่มรายการ</button>}{hasEntries && <button type="button" className="text-button" onClick={() => openEntries("3", "all", cat)}>ดูรายการ</button>}<button type="button" className="expand-button" aria-label={`ประเมิน ${thCategories[i]}`} aria-expanded={open} onClick={() => setExpandedCategory(open ? null : i)}><ChevronDown size={19} className={open ? "rotated" : ""} /></button></div>
+            <div className="sig-list">{categories.map((cat, i) => { const item = sig[cat] || {}; const open = expandedCategory === i; const hasEntries = categoryCounts[cat] > 0; const selectedCriteria = criteria.filter(([key]) => item[key]).map(([, label]) => label); return <article className={`sig-card ${item.present || hasEntries ? "is-selected" : ""}`} key={cat}><div className="sig-main"><span className="sig-index">{String(i + 1).padStart(2, "0")}</span><div className="sig-name"><strong>{thCategories[i]}</strong><small>{cat}{hasEntries ? ` · ${categoryCounts[cat]} รายการที่บันทึก` : ""}</small>{(selectedCriteria.length > 0 || item.note) && <small className="sig-summary">{selectedCriteria.length > 0 && `เกณฑ์: ${selectedCriteria.join(" · ")}`}{selectedCriteria.length > 0 && item.note && " · "}{item.note && `เหตุผล: ${item.note}`}</small>}{hasEntries && <small className="sig-hint">มีรายการบันทึกอยู่ จึงต้องแก้ไขหรือลบรายการก่อนยกเลิกหมวดนี้</small>}</div><label className="check"><input type="checkbox" checked={!!item.present || hasEntries} disabled={hasEntries} onChange={e => setSig(s => ({ ...s, [cat]: { ...item, present: e.target.checked } }))} /> มีในองค์กร</label>{(item.present || hasEntries) && <button type="button" className="text-button" onClick={() => addScopedEntry(3, cat)}>เพิ่มรายการ</button>}{hasEntries && <button type="button" className="text-button" onClick={() => openEntries("3", "all", cat)}>ดูรายการ</button>}<button type="button" className="expand-button" aria-label={`ประเมิน ${thCategories[i]}`} aria-expanded={open} onClick={() => setExpandedCategory(open ? null : i)}><ChevronDown size={19} className={open ? "rotated" : ""} /></button></div>
                     {open && <div className="sig-detail"><p>เกณฑ์ที่เกี่ยวข้องกับหมวดนี้ (เลือกได้หลายข้อ)</p><div className="sig-criteria">{criteria.map(([key, label]) => <label className="check" key={key}><input type="checkbox" checked={!!item[key]} onChange={e => setSig(s => ({ ...s, [cat]: { ...item, [key]: e.target.checked } }))} /> {label}</label>)}</div><label className="field"><span>เหตุผล / หมายเหตุ</span><input value={item.note || ""} placeholder="เช่น มีข้อมูลจากผู้รับจ้างขนส่ง" onChange={e => setSig(s => ({ ...s, [cat]: { ...item, note: e.target.value } }))} /></label></div>}
                   </article>; })}</div>
           </TabsContent>
           <TabsContent value="factors" className="tab-content">
             <div className="section-line"><div><span className="section-kicker">EF TGO AR5 V2</span><h2>เลือกค่า EF ที่บริษัทใช้</h2><p>เลือกปัจจัยที่จะให้ปรากฏในหน้าบันทึกกิจกรรม · {factors.length} ค่าในไฟล์อ้างอิง</p></div><button className="btn primary" disabled={saving} onClick={() => void saveMeta()}><Save size={17} /> บันทึกการตั้งค่า</button></div>
             <section className="panel catalog-settings"><div><h3>ค่า EF ที่บริษัทเลือกใช้</h3><p>ติ๊กปัจจัยที่ใช้จริงในตารางแล้วกดบันทึกการตั้งค่า หน้าบันทึกกิจกรรมจะแสดงเฉพาะค่าที่ติ๊กและตรงกับ Scope</p></div><span className="panel-tag">เลือกแล้ว {(profile.activeFactors || []).length} ค่า</span></section>
-            <section className="panel catalog-panel"><div className="catalog-toolbar"><div className="search-box"><Search size={17} /><input aria-label="ค้นหาค่า EF" placeholder="ค้นหาเชื้อเพลิง ไฟฟ้า หรือหน่วย" value={catalogQuery} onChange={e => setCatalogQuery(e.target.value)} /></div><NativeSelect aria-label="กรองค่า EF ตาม Scope" value={catalogScope} onChange={e => setCatalogScope(e.target.value)}><option value="all">ทุก Scope</option>{Object.entries(scopes).map(([id, label]) => <option value={id} key={id}>{label}</option>)}</NativeSelect><span className="panel-tag">เลือกใช้ {(profile.activeFactors || []).length} ค่า</span></div><div className="factor-table-wrap"><table className="factor-table"><thead><tr><th>ปัจจัยการปล่อย</th><th>หน่วย</th><th>kgCO₂e/หน่วย</th><th>เลือกใช้</th><th></th></tr></thead><tbody>{catalogMatches.sort((a, b) => Number((profile.activeFactors || []).includes(b.id)) - Number((profile.activeFactors || []).includes(a.id))).map(f => <tr key={f.id}><td><strong>{f.name}</strong><small>{f.defaultScope === 4 ? "รายงานแยก" : `Scope ${f.defaultScope}`} · EF TGO AR5 V2 · แถว {f.row} · {f.source}</small></td><td>{f.unit}</td><td className="numeric">{fmt(f.factor, 6)}</td><td><label className="check"><input type="checkbox" checked={(profile.activeFactors || []).includes(f.id)} onChange={e => setProfile(p => ({ ...p, activeFactors: e.target.checked ? [...(p.activeFactors || []), f.id] : (p.activeFactors || []).filter(id => id !== f.id) }))} /><span className="sr-only">เลือกใช้ {f.name}</span></label></td><td><button className="text-button" disabled={saving} onClick={() => void chooseCatalogFactor(f)}>{(profile.activeFactors || []).includes(f.id) ? "ใช้ค่านี้" : "เลือกและใช้"} <ArrowRight size={14} /></button></td></tr>)}</tbody></table></div>{!catalogMatches.length && <div className="empty"><strong>ไม่พบค่า EF ที่ค้นหา</strong><p>ลองใช้ชื่อรายการหรือหน่วยอื่น หรือเลือก Scope อื่น</p></div>}</section>
+            <section className="panel catalog-panel"><div className="catalog-toolbar"><div className="search-box"><Search size={17} /><input aria-label="ค้นหาค่า EF" placeholder="ค้นหาเชื้อเพลิง ไฟฟ้า หรือหน่วย" value={catalogQuery} onChange={e => setCatalogQuery(e.target.value)} /></div><NativeSelect aria-label="กรองค่า EF ตาม Scope" value={catalogScope} onChange={e => setCatalogScope(e.target.value)}><option value="all">ทุก Scope</option>{Object.entries(scopes).map(([id, label]) => <option value={id} key={id}>{label}</option>)}</NativeSelect><span className="panel-tag">เลือกใช้ {(profile.activeFactors || []).length} ค่า</span></div><div className="factor-table-wrap"><table className="factor-table"><thead><tr><th>ปัจจัยการปล่อย</th><th>หน่วย</th><th>kgCO₂e/หน่วย</th><th>เลือกใช้</th><th></th></tr></thead><tbody>{catalogMatches.sort((a, b) => Number((profile.activeFactors || []).includes(b.id)) - Number((profile.activeFactors || []).includes(a.id))).map(f => <tr key={f.id}><td><strong>{f.name}</strong><small>{f.defaultScope === 4 ? "รายงานแยก" : `Scope ${f.defaultScope}`} · EF TGO AR5 V2 · แถว {f.row} · {f.source}</small></td><td>{f.unit}</td><td className="numeric">{fmt(f.factor, 6)}</td><td><label className="check"><input type="checkbox" checked={(profile.activeFactors || []).includes(f.id)} onChange={e => toggleCatalogFactor(f, e.target.checked)} /><span className="sr-only">เลือกใช้ {f.name}</span></label></td><td><button className="text-button" disabled={saving} onClick={() => void chooseCatalogFactor(f)}>{(profile.activeFactors || []).includes(f.id) ? "ใช้ค่านี้" : "เลือกและใช้"} <ArrowRight size={14} /></button></td></tr>)}</tbody></table></div>{!catalogMatches.length && <div className="empty"><strong>ไม่พบค่า EF ที่ค้นหา</strong><p>ลองใช้ชื่อรายการหรือหน่วยอื่น หรือเลือก Scope อื่น</p></div>}</section>
             <p className="catalog-note"><Info size={16} /> ค่า EF ต้องตรงกับชนิดกิจกรรมและช่วงปีที่รายงาน ค่าไฟฟ้าในไฟล์มีหลายช่วงปีให้เลือก</p>
           </TabsContent>
         </>}
