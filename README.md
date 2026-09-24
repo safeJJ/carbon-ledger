@@ -5,7 +5,7 @@
 ## เริ่มใช้งาน
 
 1. สร้าง Supabase project และรัน SQL ใน `supabase/migrations/` ตามลำดับ
-2. ตั้งค่า `NEXT_PUBLIC_SUPABASE_URL` และ `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` จากหน้า Connect ของ Supabase ใน Vercel (Production, Preview และ Development ตามที่ใช้งาน)
+2. ตั้งค่า `NEXT_PUBLIC_CARBON_LEDGER_SUPABASE_URL` และ `NEXT_PUBLIC_CARBON_LEDGER_SUPABASE_PUBLISHABLE_KEY` จากหน้า Connect ของ Supabase ใน Vercel (Production, Preview และ Development ตามที่ใช้งาน)
 3. ตั้งค่า Authentication > URL Configuration ให้ Site URL เป็นโดเมน Vercel ที่ใช้งานจริง และเพิ่ม Redirect URLs ที่ต้องการทดสอบ
 4. เชื่อม GitHub repo กับ Vercel โดยเลือก Framework Preset: Next.js แล้ว Deploy
 5. ผู้ใช้สมัครด้วยอีเมลและรหัสผ่าน ยืนยันอีเมลเมื่อระบบร้องขอ แล้วเริ่มบันทึกข้อมูล
