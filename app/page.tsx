@@ -12,6 +12,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import factors from "./factors.json";
 import { AuthPanel } from "./auth-panel";
 import { getSupabase } from "@/lib/supabase";
+import { dateMatchesPeriod, periodDateRange } from "@/lib/carbon-period";
 import type { User } from "@supabase/supabase-js";
 
 type Factor = (typeof factors)[number];
@@ -19,6 +20,7 @@ type Entry = {
   id: string; period: "current" | "base"; scope: number; date: string;
   title: string; quantity: number; unit: string; factor: number;
   factorName: string; factorSource: string; factorRow: string; notes: string;
+  scope3Category: string;
 };
 type Profile = {
   organization?: string; preparer?: string; reportingYear?: string; baseYear?: string;
@@ -62,10 +64,14 @@ const criteria = [
 const featuredIds = ["AR5V2-157", "AR5V2-123", "AR5V2-29", "AR5V2-19", "AR5V2-30", "AR5V2-155"];
 const fmt = (n: number, d = 2) => new Intl.NumberFormat("th-TH", { maximumFractionDigits: d, minimumFractionDigits: d }).format(n);
 const total = (e: Entry) => e.quantity * e.factor / 1000;
+const today = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+};
 const freshDraft = (): Draft => ({
-  period: "current", scope: 1, date: new Date().toISOString().slice(0, 10),
+  period: "current", scope: 1, date: today(),
   title: "", quantity: "", unit: "", factor: "", factorName: "",
-  factorSource: "", factorRow: "", notes: "",
+  factorSource: "", factorRow: "", notes: "", scope3Category: "",
 });
 
 export default function Home() {
@@ -90,7 +96,9 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [periodFilter, setPeriodFilter] = useState("all");
   const [scopeFilter, setScopeFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [catalogQuery, setCatalogQuery] = useState("");
+  const [catalogScope, setCatalogScope] = useState("all");
   const [expandedCategory, setExpandedCategory] = useState<number | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
@@ -122,7 +130,7 @@ export default function Home() {
     try {
       const [p, a] = await Promise.all([
         supabase.from("profiles").select("payload,significance").eq("user_id", user.id).maybeSingle(),
-        supabase.from("activities").select("id,period,scope,date,title,quantity,unit,factor,factor_name,factor_source,factor_row,notes").eq("user_id", user.id).order("date", { ascending: false }).order("created_at", { ascending: false }),
+        supabase.from("activities").select("id,period,scope,date,title,quantity,unit,factor,factor_name,factor_source,factor_row,notes,scope3_category").eq("user_id", user.id).order("date", { ascending: false }).order("created_at", { ascending: false }),
       ]);
       if (p.error || a.error) throw new Error(p.error?.message || a.error?.message || "โหลดข้อมูลไม่สำเร็จ");
       if (userIdRef.current !== user.id) return;
@@ -133,6 +141,7 @@ export default function Home() {
         date: row.date, title: row.title, quantity: Number(row.quantity),
         unit: row.unit, factor: Number(row.factor), factorName: row.factor_name,
         factorSource: row.factor_source, factorRow: row.factor_row || "", notes: row.notes || "",
+        scope3Category: row.scope3_category || "",
       })));
     } catch (error) {
       if (userIdRef.current === user.id) setFailure(error instanceof Error ? error.message : "โหลดข้อมูลไม่สำเร็จ");
@@ -160,14 +169,21 @@ export default function Home() {
   const filteredEntries = entries.filter(e =>
     (periodFilter === "all" || e.period === periodFilter) &&
     (scopeFilter === "all" || String(e.scope) === scopeFilter) &&
+    (categoryFilter === "all" || e.scope3Category === categoryFilter) &&
     (!query || [e.title, e.factorName, e.notes].join(" ").toLowerCase().includes(query.toLowerCase()))
   );
   const allowed = factors.filter(f => !profile.onlyActiveFactors || (profile.activeFactors || []).includes(f.id));
+  const scopeFactors = allowed.filter(f => f.defaultScope === Number(form.scope));
   const factorMatches = factorQuery.trim()
-    ? allowed.filter(f => `${f.name} ${f.original} ${f.unit}`.toLowerCase().includes(factorQuery.trim().toLowerCase())).slice(0, 8)
-    : [...allowed].sort((a, b) => featuredIds.indexOf(a.id) === -1 ? 1 : featuredIds.indexOf(b.id) === -1 ? -1 : featuredIds.indexOf(a.id) - featuredIds.indexOf(b.id)).slice(0, 6);
-  const catalogMatches = factors.filter(f => `${f.name} ${f.original} ${f.unit}`.toLowerCase().includes(catalogQuery.toLowerCase()));
-  const chosenCategories = categories.filter(c => sig[c]?.present).length;
+    ? scopeFactors.filter(f => `${f.name} ${f.original} ${f.unit}`.toLowerCase().includes(factorQuery.trim().toLowerCase())).slice(0, 8)
+    : [...scopeFactors].sort((a, b) => featuredIds.indexOf(a.id) === -1 ? 1 : featuredIds.indexOf(b.id) === -1 ? -1 : featuredIds.indexOf(a.id) - featuredIds.indexOf(b.id)).slice(0, 6);
+  const catalogMatches = factors.filter(f => (catalogScope === "all" || f.defaultScope === Number(catalogScope)) && `${f.name} ${f.original} ${f.unit}`.toLowerCase().includes(catalogQuery.toLowerCase()));
+  const categoryCounts = Object.fromEntries(categories.map(cat => [cat, entries.filter(e => e.scope === 3 && e.scope3Category === cat).length]));
+  const chosenCategories = categories.filter(c => sig[c]?.present || categoryCounts[c] > 0).length;
+  const periodMismatches = entries.filter(e => !dateMatchesPeriod(e.date, e.period === "base" ? profile.baseYear || "" : profile.reportingYear || ""));
+  const activePeriodLabel = form.period === "base" ? profile.baseYear || "" : profile.reportingYear || "";
+  const activePeriodRange = periodDateRange(activePeriodLabel);
+  const dateMismatch = !!form.date && !!activePeriodRange && !dateMatchesPeriod(form.date, activePeriodLabel);
 
   async function saveMeta() {
     const supabase = getSupabase();
@@ -184,10 +200,21 @@ export default function Home() {
     finally { setSaving(false); }
   }
   function selectFactor(f: Factor) {
+    const previousFactorName = selectedFactor?.name;
     setSelectedFactor(f); setCustomFactor(false); setFactorPickerOpen(false); setAdvancedOpen(false);
-    setForm(v => ({ ...v, scope: f.defaultScope, title: v.title || f.name,
+    setFactorQuery("");
+    setForm(v => ({ ...v, scope: f.defaultScope, scope3Category: f.defaultScope === 3 ? v.scope3Category : "",
+      title: !v.title || v.title === previousFactorName ? f.name : v.title,
       unit: f.unit, factor: String(f.factor), factorName: f.name,
       factorSource: f.source, factorRow: `EF TGO AR5 V2!J${f.row}` }));
+  }
+  function changeScope(scope: number) {
+    const oldFactorName = selectedFactor?.name;
+    setForm(v => ({ ...v, scope, scope3Category: scope === 3 ? v.scope3Category : "",
+      title: v.title === oldFactorName ? "" : v.title,
+      unit: "", factor: "", factorName: "", factorSource: "", factorRow: "" }));
+    setSelectedFactor(null); setCustomFactor(false); setFactorPickerOpen(true);
+    setFactorQuery(""); setAdvancedOpen(false);
   }
   function useCustomFactor() {
     setSelectedFactor(null); setCustomFactor(true); setFactorPickerOpen(false); setAdvancedOpen(true);
@@ -204,12 +231,22 @@ export default function Home() {
     if (!form.factorName || !form.factorSource || !form.unit || form.factor === "") {
       setFailure("เลือกค่า EF จากรายการ หรือกรอกข้อมูลปัจจัยการปล่อยให้ครบ"); return;
     }
+    if (dateMismatch) {
+      setFailure("วันที่ไม่อยู่ในช่วงปีที่เลือก กรุณาตรวจช่วงข้อมูลหรือวันที่อีกครั้ง"); return;
+    }
+    if (Number(form.scope) === 3 && !categories.includes(form.scope3Category)) {
+      setFailure("กรุณาเลือกหมวด Scope 3 ให้รายการนี้"); return;
+    }
+    if (form.factorRow && !factors.some(f => f.defaultScope === Number(form.scope) && form.factorRow === `EF TGO AR5 V2!J${f.row}` && Number(form.factor) === f.factor && form.unit === f.unit)) {
+      setFailure("ค่า EF จาก TGO ไม่ตรงกับ Scope หน่วย หรือค่าปัจจัย กรุณาเลือกค่าใหม่"); return;
+    }
     if (!Number.isFinite(Number(form.quantity)) || Number(form.quantity) <= 0 || !Number.isFinite(Number(form.factor)) || Number(form.factor) < 0 || Number(form.quantity) > 1e12 || Number(form.factor) > 1e9) {
       setFailure("ปริมาณต้องมากกว่า 0 และค่า EF ต้องไม่ติดลบ"); return;
     }
     setSaving(true);
     try {
       const record = { period: form.period, scope: Number(form.scope), date: form.date,
+        scope3_category: Number(form.scope) === 3 ? form.scope3Category : null,
         title: form.title.trim(), quantity: Number(form.quantity), unit: form.unit.trim(),
         factor: Number(form.factor), factor_name: form.factorName.trim(),
         factor_source: form.factorSource.trim(), factor_row: form.factorRow || "", notes: form.notes || "" };
@@ -225,7 +262,8 @@ export default function Home() {
   function startEdit(e: Entry) {
     setForm({ period: e.period, scope: e.scope, date: e.date, title: e.title,
       quantity: String(e.quantity), unit: e.unit, factor: String(e.factor),
-      factorName: e.factorName, factorSource: e.factorSource, factorRow: e.factorRow || "", notes: e.notes || "" });
+      factorName: e.factorName, factorSource: e.factorSource, factorRow: e.factorRow || "", notes: e.notes || "",
+      scope3Category: e.scope3Category });
     const matched = factors.find(f => e.factorRow === `EF TGO AR5 V2!J${f.row}`) || null;
     setSelectedFactor(matched); setCustomFactor(!matched); setFactorPickerOpen(false); setAdvancedOpen(!matched);
     setEditId(e.id); setTab("activities"); window.scrollTo({ top: 0, behavior: "smooth" });
@@ -242,9 +280,9 @@ export default function Home() {
     finally { setSaving(false); }
   }
   function exportCSV() {
-    const head = ["ปี", "วันที่", "ขอบเขต", "รายการ", "ปริมาณ", "หน่วย", "ค่า EF (kgCO2e/หน่วย)", "การปล่อย (tCO2e)", "ชื่อปัจจัย", "แหล่งอ้างอิง", "แถวในไฟล์", "หมายเหตุ"];
+    const head = ["ปี", "วันที่", "ขอบเขต", "หมวด Scope 3", "รายการ", "ปริมาณ", "หน่วย", "ค่า EF (kgCO2e/หน่วย)", "การปล่อย (tCO2e)", "ชื่อปัจจัย", "แหล่งอ้างอิง", "แถวในไฟล์", "หมายเหตุ"];
     const escape = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
-    const rows = [head, ...entries.map(e => [e.period === "base" ? profile.baseYear || "ปีฐาน" : profile.reportingYear || "ปีรายงาน", e.date, e.scope, e.title, e.quantity, e.unit, e.factor, total(e), e.factorName, e.factorSource, e.factorRow, e.notes])];
+    const rows = [head, ...entries.map(e => [e.period === "base" ? profile.baseYear || "ปีฐาน" : profile.reportingYear || "ปีรายงาน", e.date, e.scope, thCategories[categories.indexOf(e.scope3Category)] || "", e.title, e.quantity, e.unit, e.factor, total(e), e.factorName, e.factorSource, e.factorRow, e.notes])];
     const blob = new Blob(["\uFEFF" + rows.map(row => row.map(escape).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob); const a = document.createElement("a");
     a.href = url; a.download = "carbon-inventory.csv"; a.click(); URL.revokeObjectURL(url);
@@ -254,6 +292,14 @@ export default function Home() {
       value={profile[key] || ""} placeholder={placeholder}
       onChange={e => setProfile(p => ({ ...p, [key]: e.target.value }))} /></label>;
   const go = (value: string) => { setTab(value); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const openEntries = (scope = "all", period = "all", category = "all") => {
+    setScopeFilter(scope); setPeriodFilter(period); setCategoryFilter(category); setQuery(""); go("activities");
+  };
+  const addScopedEntry = (scope: number, category = "") => {
+    resetDraft();
+    setForm(v => ({ ...v, scope, scope3Category: category }));
+    go("activities");
+  };
 
   if (!authReady) return <main className="auth-loading">กำลังตรวจสอบบัญชี…</main>;
   if (!getSupabase()) return <main className="auth-loading">ยังไม่ได้ตั้งค่า Supabase สำหรับเว็บนี้</main>;
@@ -286,13 +332,14 @@ export default function Home() {
         {notice && <div className="message success" role="status"><Check size={18} /><span>{notice}</span><button onClick={() => setNotice("")}>ปิด</button></div>}
         {loading ? <div className="panel loading">กำลังโหลดข้อมูล…</div> : <>
           <TabsContent value="overview" className="tab-content">
+            {periodMismatches.length > 0 && <div className="message error" role="status"><TriangleAlert size={18} /><span>พบ {periodMismatches.length} รายการที่วันที่ไม่ตรงกับช่วงปีรายงาน/ปีฐาน กรุณาตรวจสอบก่อนใช้ผลสรุป</span><button onClick={() => openEntries()}>ตรวจรายการ</button></div>}
             {completed < 3 && <section className="getting-started"><div className="getting-copy"><span className="section-kicker">เริ่มต้นใช้งาน</span><h2>จัดทำข้อมูลเป็น 3 ขั้นตอน</h2><p>ตั้งค่าพื้นฐาน เลือกปัจจัยที่ใช้ แล้วบันทึกปริมาณกิจกรรมจริง</p></div><div className="getting-actions">
               {!setup[0] ? <button className="btn primary" onClick={() => go("organization")}>กรอกข้อมูลองค์กร <ArrowRight size={17} /></button> : !setup[1] ? <button className="btn primary" onClick={() => go("factors")}>เลือกค่า EF <ArrowRight size={17} /></button> : <button className="btn primary" onClick={() => go("activities")}>เพิ่มรายการแรก <ArrowRight size={17} /></button>}
               <span>{completed} จาก 3 ขั้นตอน</span>
             </div></section>}
             <div className="section-line"><div><span className="section-kicker">FR-05 · ปีรายงาน</span><h2>ผลการปล่อยขององค์กร</h2><p>{profile.reportingYear || "ยังไม่กำหนดช่วงปีรายงาน"} · หน่วย tCO₂e</p></div><span className="year-chip">{reportCount} รายการปีรายงาน</span></div>
             <div className="metric-grid"><div className="metric main-metric"><div className="metric-top"><span>รวม Scope 1–3</span><span className="metric-icon"><Leaf size={19} /></span></div><strong>{fmt(current, 3)}</strong><small>ตันคาร์บอนไดออกไซด์เทียบเท่า</small></div>
-              {[1, 2, 3].map(i => <div className="metric" key={i}><span className={`scope-indicator s${i}`} /><span>Scope {i}</span><strong>{fmt(totals.current[i], 3)}</strong><small>{i === 1 ? "การปล่อยทางตรง" : i === 2 ? "พลังงานที่ซื้อ" : "การปล่อยทางอ้อมอื่น"}</small></div>)}
+              {[1, 2, 3].map(i => <div className="metric" key={i}><span className={`scope-indicator s${i}`} /><span>Scope {i}</span><strong>{fmt(totals.current[i], 3)}</strong><small>{i === 1 ? "การปล่อยทางตรง" : i === 2 ? "พลังงานที่ซื้อ" : "การปล่อยทางอ้อมอื่น"}</small><button className="text-button metric-link" onClick={() => openEntries(String(i), "current")}>ดูรายการ <ArrowRight size={14} /></button></div>)}
             </div>
             <div className="dashboard-grid">
               <section className="panel proportions"><div className="panel-head"><div><h3>สัดส่วนการปล่อย</h3><p>เปรียบเทียบแต่ละ Scope ของปีรายงาน</p></div><span className="panel-tag">Scope 1–3</span></div>
@@ -303,9 +350,9 @@ export default function Home() {
               </section>
             </div>
             <div className="dashboard-lower">
-              <section className="panel compare-panel"><div className="panel-head"><div><h3>เปรียบเทียบกับปีฐาน</h3><p>{profile.baseYear || "ยังไม่กำหนดปีฐาน"}</p></div>{baseCount > 0 && <span className="panel-tag">{baseCount} รายการปีฐาน</span>}</div><div className="compare"><div><span>ปีรายงาน</span><strong>{fmt(current, 3)}</strong><small>tCO₂e</small></div><div><span>ปีฐาน</span><strong>{fmt(base, 3)}</strong><small>tCO₂e</small></div></div>{base > 0 ? <div className={`delta ${current <= base ? "down" : "up"}`}>{current <= base ? <ArrowDownRight size={16} /> : <ArrowUpRight size={16} />}{current <= base ? "ลดลง" : "เพิ่มขึ้น"} {fmt(Math.abs(current - base) / base * 100, 1)}% จากปีฐาน</div> : <p className="hint">เพิ่มข้อมูลกิจกรรมของปีฐานเพื่อดูการเปลี่ยนแปลง</p>}</section>
-              <section className="panel intensity-panel"><div className="panel-head"><div><h3>ความเข้มการปล่อย</h3><p>ผลการปล่อย ÷ ผลผลิตปีรายงาน</p></div><span className="panel-tag">tCO₂e / {profile.outputUnit || "หน่วย"}</span></div><div className="intensity"><span>Scope 1 + 2</span><strong>{Number(profile.output) > 0 ? fmt((totals.current[1] + totals.current[2]) / Number(profile.output), 4) : "—"}</strong></div><div className="intensity"><span>Scope 1 + 2 + 3</span><strong>{Number(profile.output) > 0 ? fmt(current / Number(profile.output), 4) : "—"}</strong></div>{!Number(profile.output) && <button className="text-button" onClick={() => go("organization")}>ระบุผลผลิตเพื่อคำนวณ <ArrowRight size={15} /></button>}</section>
-              <section className="panel separate-panel"><div className="panel-head"><div><h3>การปล่อยที่รายงานแยก</h3><p>เช่น CO₂ จากเชื้อเพลิงชีวภาพ</p></div></div><div className="other-number">{fmt(totals.current[4], 3)} <small>tCO₂e</small></div><p className="hint">ไม่รวมในยอด Scope 1–3</p></section>
+              <section className="panel compare-panel"><div className="panel-head"><div><h3>เปรียบเทียบกับปีฐาน</h3><p>{profile.baseYear || "ยังไม่กำหนดปีฐาน"}</p></div>{baseCount > 0 && <span className="panel-tag">{baseCount} รายการปีฐาน</span>}</div><div className="compare"><div><span>ปีรายงาน</span><strong>{fmt(current, 3)}</strong><small>tCO₂e</small></div><div><span>ปีฐาน</span><strong>{fmt(base, 3)}</strong><small>tCO₂e</small></div></div>{base > 0 ? <div className={`delta ${current <= base ? "down" : "up"}`}>{current <= base ? <ArrowDownRight size={16} /> : <ArrowUpRight size={16} />}{current <= base ? "ลดลง" : "เพิ่มขึ้น"} {fmt(Math.abs(current - base) / base * 100, 1)}% จากปีฐาน</div> : <p className="hint">เพิ่มข้อมูลกิจกรรมของปีฐานเพื่อดูการเปลี่ยนแปลง</p>}<button className="text-button panel-link" onClick={() => openEntries("all", "base")}>ดูรายการปีฐาน <ArrowRight size={14} /></button></section>
+              <section className="panel intensity-panel"><div className="panel-head"><div><h3>ความเข้มการปล่อย</h3><p>ผลการปล่อย ÷ ผลผลิตของแต่ละปี</p></div><span className="panel-tag">tCO₂e / {profile.outputUnit || "หน่วย"}</span></div><div className="intensity"><span>Scope 1 + 2 · ปีรายงาน</span><strong>{Number(profile.output) > 0 ? fmt((totals.current[1] + totals.current[2]) / Number(profile.output), 4) : "—"}</strong></div><div className="intensity"><span>Scope 1 + 2 + 3 · ปีรายงาน</span><strong>{Number(profile.output) > 0 ? fmt(current / Number(profile.output), 4) : "—"}</strong></div>{baseCount > 0 && <div className="intensity"><span>Scope 1 + 2 + 3 · ปีฐาน</span><strong>{Number(profile.baseOutput) > 0 ? fmt(base / Number(profile.baseOutput), 4) : "—"}</strong></div>}{(!Number(profile.output) || (baseCount > 0 && !Number(profile.baseOutput))) && <button className="text-button" onClick={() => go("organization")}>ระบุผลผลิตเพื่อคำนวณ <ArrowRight size={15} /></button>}</section>
+              <section className="panel separate-panel"><div className="panel-head"><div><h3>การปล่อยที่รายงานแยก</h3><p>เช่น CO₂ จากเชื้อเพลิงชีวภาพ</p></div></div><div className="other-number">{fmt(totals.current[4], 3)} <small>tCO₂e</small></div><p className="hint">ไม่รวมในยอด Scope 1–3</p><button className="text-button panel-link" onClick={() => openEntries("4", "current")}>ดูรายการ <ArrowRight size={14} /></button></section>
             </div>
           </TabsContent>
           <TabsContent value="activities" className="tab-content">
@@ -316,21 +363,23 @@ export default function Home() {
                   <div className="form-section"><div className="step-heading"><span>1</span><div><strong>ข้อมูลกิจกรรม</strong><small>รายการนี้เกิดขึ้นเมื่อไรและอยู่ในขอบเขตใด</small></div></div>
                     <div className="form-grid form-grid-three"><label className="field"><span>ช่วงข้อมูล</span><NativeSelect value={form.period} onChange={e => setForm(v => ({ ...v, period: e.target.value as Draft["period"] }))}><option value="current">ปีรายงาน {profile.reportingYear || ""}</option><option value="base">ปีฐาน {profile.baseYear || ""}</option></NativeSelect></label>
                       <label className="field"><span>วันที่</span><input type="date" required value={form.date} onChange={e => setForm(v => ({ ...v, date: e.target.value }))} /></label>
-                      <label className="field"><span>ขอบเขต</span><NativeSelect value={form.scope} onChange={e => setForm(v => ({ ...v, scope: Number(e.target.value) }))}>{Object.entries(scopes).map(([id, label]) => <option value={id} key={id}>{label}</option>)}</NativeSelect></label></div>
+                      <label className="field"><span>ขอบเขต</span><NativeSelect value={form.scope} onChange={e => changeScope(Number(e.target.value))}>{Object.entries(scopes).map(([id, label]) => <option value={id} key={id}>{label}</option>)}</NativeSelect></label></div>
+                    {dateMismatch && <p className="form-warning" role="alert">วันที่ {form.date} ไม่อยู่ในช่วง {activePeriodLabel} กรุณาตรวจช่วงข้อมูลหรือวันที่</p>}
+                    {Number(form.scope) === 3 && <div className="form-grid"><label className="field"><span>หมวด Scope 3</span><NativeSelect required value={form.scope3Category} onChange={e => setForm(v => ({ ...v, scope3Category: e.target.value }))}><option value="">เลือกหมวดกิจกรรมทางอ้อม</option>{categories.map((cat, i) => <option value={cat} key={cat}>{thCategories[i]}{sig[cat]?.present || categoryCounts[cat] > 0 ? " · ประเมินแล้ว" : ""}</option>)}</NativeSelect></label><div className="field field-help"><span>เชื่อมกับผลประเมิน</span><button type="button" className="text-button" onClick={() => go("significance")}>ดูหมวด Scope 3 <ArrowRight size={14} /></button></div></div>}
                   </div>
                   <div className="form-section"><div className="step-heading"><span>2</span><div><strong>เลือกแหล่งปล่อย / ค่า EF</strong><small>เลือกจากไฟล์อ้างอิง หรือกรอกปัจจัยที่มีเอง</small></div></div>
                     {selectedFactor && !factorPickerOpen && <div className="selected-factor"><div className="selected-icon"><Zap size={20} /></div><div><span>ค่า EF ที่เลือก</span><strong>{selectedFactor.name}</strong><small>{fmt(selectedFactor.factor, 6)} kgCO₂e/{selectedFactor.unit} · EF TGO AR5 V2 แถว {selectedFactor.row}</small></div><button type="button" onClick={() => setFactorPickerOpen(true)}>เปลี่ยน</button></div>}
                     {customFactor && !factorPickerOpen && <div className="selected-factor custom-selected"><div className="selected-icon"><SlidersHorizontal size={20} /></div><div><span>ค่า EF จากแหล่งของคุณ</span><strong>{form.factorName || "กรอกข้อมูลปัจจัยด้านล่าง"}</strong></div><button type="button" onClick={() => setFactorPickerOpen(true)}>เปลี่ยน</button></div>}
-                    {factorPickerOpen && <div className="factor-chooser"><div className="search-box"><Search size={17} /><input aria-label="ค้นหาค่า EF สำหรับกิจกรรม" placeholder="ค้นหา เช่น ไฟฟ้า ดีเซล LPG" value={factorQuery} onChange={e => setFactorQuery(e.target.value)} /></div>
+                    {factorPickerOpen && <div className="factor-chooser"><p className="factor-scope-note">แสดงค่า EF จากชุดข้อมูล TGO เฉพาะ {scopes[Number(form.scope)]} · {scopeFactors.length} รายการ</p><div className="search-box"><Search size={17} /><input aria-label="ค้นหาค่า EF สำหรับกิจกรรม" placeholder="ค้นหาค่า EF ใน Scope นี้" value={factorQuery} onChange={e => setFactorQuery(e.target.value)} /></div>
                       <div className="factor-suggestions">{factorMatches.map(f => <button className="factor-option" type="button" key={f.id} onClick={() => selectFactor(f)}><span className="factor-option-icon"><Zap size={16} /></span><span><strong>{f.name}</strong><small>{f.defaultScope === 4 ? "รายงานแยก" : `Scope ${f.defaultScope}`} · แถว {f.row}</small></span><b>{fmt(f.factor, 5)} <small>/{f.unit}</small></b></button>)}
-                        {!factorMatches.length && <div className="factor-empty">{profile.onlyActiveFactors ? "ไม่พบปัจจัยในรายการที่องค์กรเลือกไว้" : "ไม่พบค่า EF ที่ค้นหา"} <button type="button" onClick={() => go("factors")}>ดูคลังค่า EF</button></div>}
-                      </div><div className="factor-chooser-footer"><span>{factorQuery ? "เลือกแถวให้ตรงกับชนิดกิจกรรม" : "รายการที่ใช้บ่อย · ค้นหาชื่อเพื่อดูค่าอื่น"}</span><button type="button" onClick={useCustomFactor}>กรอก EF เอง <ArrowRight size={15} /></button></div></div>}
+                        {!factorMatches.length && <div className="factor-empty">{profile.onlyActiveFactors ? "ไม่พบค่า EF ใน Scope นี้จากรายการที่บริษัทเลือกไว้" : "ไม่พบค่า EF สำหรับ Scope นี้ในชุดข้อมูล TGO"} <button type="button" onClick={() => { setCatalogScope(String(form.scope)); go("factors"); }}>ดูคลังค่า EF</button></div>}
+                      </div><div className="factor-chooser-footer"><span>{Number(form.scope) === 3 ? "TGO ชุดนี้มีค่า Scope 3 จำกัด · ใช้ EF จากแหล่งอื่นพร้อมอ้างอิงได้" : factorQuery ? "เลือกแถวให้ตรงกับชนิดกิจกรรม" : "รายการที่ใช้บ่อย · ค้นหาชื่อเพื่อดูค่าอื่น"}</span><button type="button" onClick={useCustomFactor}>กรอก EF เอง <ArrowRight size={15} /></button></div></div>}
                   </div>
                   <div className="form-section"><div className="step-heading"><span>3</span><div><strong>กรอกปริมาณที่ใช้</strong><small>ใช้หน่วยเดียวกับค่า EF ที่เลือก</small></div></div>
                     <div className="form-grid activity-inputs"><label className="field"><span>ชื่อกิจกรรม / รายการ</span><input required value={form.title} placeholder="เช่น รถส่งสินค้าใช้น้ำมันดีเซล" onChange={e => setForm(v => ({ ...v, title: e.target.value }))} /></label><label className="field"><span>ปริมาณ ({form.unit || "หน่วย"})</span><input type="number" min="0.000000001" step="any" required placeholder="0" value={form.quantity} onChange={e => setForm(v => ({ ...v, quantity: e.target.value }))} /></label></div>
                   </div>
                   <div className="advanced"><button type="button" className="advanced-toggle" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen(!advancedOpen)}><SlidersHorizontal size={16} /> ค่า EF, แหล่งอ้างอิง และหมายเหตุ <ChevronDown size={16} className={advancedOpen ? "rotated" : ""} /></button>
-                    {advancedOpen && <div className="advanced-body"><div className="form-grid form-grid-three"><label className="field"><span>หน่วย</span><input required placeholder="เช่น Liter, kWh" value={form.unit} onChange={e => setForm(v => ({ ...v, unit: e.target.value }))} /></label><label className="field"><span>EF (kgCO₂e/หน่วย)</span><input type="number" step="any" min="0" required value={form.factor} onChange={e => { setSelectedFactor(null); setCustomFactor(true); setForm(v => ({ ...v, factor: e.target.value, factorRow: "" })); }} /></label><label className="field"><span>ชื่อปัจจัย</span><input required value={form.factorName} onChange={e => setForm(v => ({ ...v, factorName: e.target.value }))} /></label></div>
+                    {advancedOpen && <div className="advanced-body"><div className="form-grid form-grid-three"><label className="field"><span>หน่วย</span><input required placeholder="เช่น Liter, kWh" value={form.unit} onChange={e => { if (selectedFactor) { setSelectedFactor(null); setCustomFactor(true); } setForm(v => ({ ...v, unit: e.target.value, factorRow: "", factorSource: v.factorRow ? "" : v.factorSource })); }} /></label><label className="field"><span>EF (kgCO₂e/หน่วย)</span><input type="number" step="any" min="0" required value={form.factor} onChange={e => { setSelectedFactor(null); setCustomFactor(true); setForm(v => ({ ...v, factor: e.target.value, factorRow: "", factorSource: v.factorRow ? "" : v.factorSource })); }} /></label><label className="field"><span>ชื่อปัจจัย</span><input required value={form.factorName} onChange={e => setForm(v => ({ ...v, factorName: e.target.value }))} /></label></div>
                       <div className="form-grid"><label className="field"><span>แหล่งอ้างอิง EF</span><input required placeholder="ชื่อเอกสาร เวอร์ชัน และปี" value={form.factorSource} onChange={e => setForm(v => ({ ...v, factorSource: e.target.value }))} /></label><label className="field"><span>หมายเหตุ / เลขที่หลักฐาน</span><input placeholder="เช่น เลขที่ใบแจ้งหนี้" value={form.notes} onChange={e => setForm(v => ({ ...v, notes: e.target.value }))} /></label></div>
                       {!!form.factorRow && <p className="source-ref">ตำแหน่งในไฟล์: {form.factorRow}</p>}</div>}
                   </div>
@@ -338,8 +387,8 @@ export default function Home() {
                   <div className="form-actions"><button type="submit" className="btn primary" disabled={saving}><Save size={17} /> {saving ? "กำลังบันทึก…" : editId ? "บันทึกการแก้ไข" : "บันทึกรายการ"}</button></div>
                 </form>
               </section>
-              <section className="panel records"><div className="panel-head"><div><h3>รายการที่บันทึก</h3><p>{filteredEntries.length} จาก {entries.length} รายการ</p></div></div><div className="record-filters"><div className="search-box"><Search size={16} /><input aria-label="ค้นหารายการ" placeholder="ค้นหารายการ" value={query} onChange={e => setQuery(e.target.value)} /></div><NativeSelect aria-label="กรองช่วงข้อมูล" value={periodFilter} onChange={e => setPeriodFilter(e.target.value)}><option value="all">ทุกปี</option><option value="current">ปีรายงาน</option><option value="base">ปีฐาน</option></NativeSelect><NativeSelect aria-label="กรองขอบเขต" value={scopeFilter} onChange={e => setScopeFilter(e.target.value)}><option value="all">ทุก Scope</option>{[1, 2, 3, 4].map(i => <option key={i} value={i}>{i === 4 ? "รายงานแยก" : `Scope ${i}`}</option>)}</NativeSelect></div>
-                {filteredEntries.length ? <div className="record-list">{filteredEntries.map(e => <article className="record" key={e.id}><div className="record-top"><span className={`badge s${e.scope}`}>{e.scope === 4 ? "แยก" : `S${e.scope}`}</span><strong>{e.title}</strong></div><div className="record-value">{fmt(total(e), 4)} <small>tCO₂e</small></div><div className="record-sub">{e.period === "base" ? "ปีฐาน" : "ปีรายงาน"} · {e.date} · {fmt(e.quantity, 3)} {e.unit}</div><div className="record-source">EF {fmt(e.factor, 6)} · {e.factorRow || e.factorName}</div><div className="record-actions"><button onClick={() => startEdit(e)}>แก้ไข</button><button className="delete" onClick={() => setConfirmId(e.id)}><Trash2 size={15} /> ลบ</button></div>{confirmId === e.id && <div className="confirm"><span>ยืนยันลบรายการนี้?</span><button onClick={() => setConfirmId(null)}>ยกเลิก</button><button className="danger" disabled={saving} onClick={() => void remove(e.id)}>ลบรายการ</button></div>}</article>)}</div> : <div className="empty"><span className="empty-icon"><ClipboardList size={23} /></span><strong>{entries.length ? "ไม่พบรายการที่ค้นหา" : "ยังไม่มีรายการ"}</strong><p>{entries.length ? "ลองเปลี่ยนคำค้นหาหรือตัวกรอง" : "เมื่อบันทึกกิจกรรม รายการจะแสดงที่นี่"}</p></div>}
+              <section className="panel records"><div className="panel-head"><div><h3>รายการที่บันทึก</h3><p>{filteredEntries.length} จาก {entries.length} รายการ</p></div></div><div className="record-filters"><div className="search-box"><Search size={16} /><input aria-label="ค้นหารายการ" placeholder="ค้นหารายการ" value={query} onChange={e => setQuery(e.target.value)} /></div><NativeSelect aria-label="กรองช่วงข้อมูล" value={periodFilter} onChange={e => setPeriodFilter(e.target.value)}><option value="all">ทุกปี</option><option value="current">ปีรายงาน</option><option value="base">ปีฐาน</option></NativeSelect><NativeSelect aria-label="กรองขอบเขต" value={scopeFilter} onChange={e => { setScopeFilter(e.target.value); setCategoryFilter("all"); }}><option value="all">ทุก Scope</option>{[1, 2, 3, 4].map(i => <option key={i} value={i}>{i === 4 ? "รายงานแยก" : `Scope ${i}`}</option>)}</NativeSelect>{scopeFilter === "3" && <NativeSelect aria-label="กรองหมวด Scope 3" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}><option value="all">ทุกหมวด Scope 3</option>{categories.map((cat, i) => <option key={cat} value={cat}>{thCategories[i]}</option>)}</NativeSelect>}</div>
+                {filteredEntries.length ? <div className="record-list">{filteredEntries.map(e => <article className="record" key={e.id}><div className="record-top"><span className={`badge s${e.scope}`}>{e.scope === 4 ? "แยก" : `S${e.scope}`}</span><strong>{e.title}</strong></div><div className="record-value">{fmt(total(e), 4)} <small>tCO₂e</small></div><div className="record-sub">{e.period === "base" ? "ปีฐาน" : "ปีรายงาน"} · {e.date} · {fmt(e.quantity, 3)} {e.unit}</div>{e.scope === 3 && <div className="record-sub">หมวด {thCategories[categories.indexOf(e.scope3Category)] || "ยังไม่ระบุ"}</div>}<div className="record-source">EF {fmt(e.factor, 6)} · {e.factorRow || e.factorName}</div><div className="record-actions"><button onClick={() => startEdit(e)}>แก้ไข</button><button className="delete" onClick={() => setConfirmId(e.id)}><Trash2 size={15} /> ลบ</button></div>{confirmId === e.id && <div className="confirm"><span>ยืนยันลบรายการนี้?</span><button onClick={() => setConfirmId(null)}>ยกเลิก</button><button className="danger" disabled={saving} onClick={() => void remove(e.id)}>ลบรายการ</button></div>}</article>)}</div> : <div className="empty"><span className="empty-icon"><ClipboardList size={23} /></span><strong>{entries.length ? "ไม่พบรายการที่ค้นหา" : "ยังไม่มีรายการ"}</strong><p>{entries.length ? "ลองเปลี่ยนคำค้นหาหรือตัวกรอง" : "เมื่อบันทึกกิจกรรม รายการจะแสดงที่นี่"}</p></div>}
               </section>
             </div>
           </TabsContent>
@@ -348,20 +397,20 @@ export default function Home() {
             <div className="org-grid"><section className="panel"><div className="panel-head"><div><h3>ข้อมูลพื้นฐาน</h3><p>เริ่มจากข้อมูลที่จำเป็นก่อน</p></div><span className="panel-tag">01</span></div><div className="form-grid">{field("organization", "ชื่อองค์กร", "ชื่อบริษัท / หน่วยงาน")}{field("preparer", "ผู้จัดทำ", "ชื่อผู้รับผิดชอบ")}{field("reportingYear", "ระยะเวลาปีรายงาน", "เช่น ม.ค. 2569 – ธ.ค. 2569")}{field("baseYear", "ระยะเวลาปีฐาน", "เช่น ม.ค. 2567 – ธ.ค. 2567")}</div></section>
               <section className="panel"><div className="panel-head"><div><h3>ผลผลิตและสถานที่</h3><p>ใช้คำนวณความเข้มการปล่อยต่อหน่วยผลผลิต</p></div><span className="panel-tag">02</span></div><div className="form-grid">{field("output", "ผลผลิตปีรายงาน", "เช่น 12000", "number")}{field("baseOutput", "ผลผลิตปีฐาน", "เช่น 10000", "number")}{field("outputUnit", "หน่วยผลผลิต", "เช่น ชิ้น, ตันผลิตภัณฑ์")}{field("address", "สถานที่ติดต่อ", "ที่อยู่หรือสถานประกอบการ")}</div></section></div>
             <div className="section-line subsection"><div><h2>ขอบเขตที่องค์กรมี</h2><p>ระบุเป็นตัวอย่างแหล่งปล่อยของบริษัท เพื่อใช้ประกอบบัญชีรายการ</p></div></div>
-            <div className="boundary-grid">{([1, 2, 3] as const).map(i => <section className="panel boundary-card" key={i}><div className="boundary-head"><span className={`badge s${i}`}>S{i}</span><div><h3>{scopes[i].split(" · ")[1]}</h3><small>ประเภท {i}</small></div></div><label className="field"><span>มีแหล่งปล่อยอะไรบ้าง</span><textarea rows={4} value={profile[`boundary${i}` as ProfileField] || ""} placeholder={i === 1 ? "เช่น รถบริษัท เครื่องกำเนิดไฟฟ้า สารทำความเย็น" : i === 2 ? "เช่น ไฟฟ้าที่ซื้อจากการไฟฟ้า" : "เช่น ของเสีย การเดินทางพนักงาน การขนส่งโดยคู่ค้า"} onChange={e => setProfile(p => ({ ...p, [`boundary${i}`]: e.target.value }))} /></label></section>)}</div>
+            <div className="boundary-grid">{([1, 2, 3] as const).map(i => <section className="panel boundary-card" key={i}><div className="boundary-head"><span className={`badge s${i}`}>S{i}</span><div><h3>{scopes[i].split(" · ")[1]}</h3><small>ประเภท {i}</small></div></div><label className="field"><span>มีแหล่งปล่อยอะไรบ้าง</span><textarea rows={4} value={profile[`boundary${i}` as ProfileField] || ""} placeholder={i === 1 ? "เช่น รถบริษัท เครื่องกำเนิดไฟฟ้า สารทำความเย็น" : i === 2 ? "เช่น ไฟฟ้าที่ซื้อจากการไฟฟ้า" : "เช่น ของเสีย การเดินทางพนักงาน การขนส่งโดยคู่ค้า"} onChange={e => setProfile(p => ({ ...p, [`boundary${i}`]: e.target.value }))} /></label><div className="linked-actions"><button className="text-button" onClick={() => openEntries(String(i))}>ดู {entries.filter(e => e.scope === i).length} รายการ</button><button className="text-button" onClick={() => addScopedEntry(i)}>เพิ่มรายการ <ArrowRight size={14} /></button></div></section>)}</div>
             <section className="panel structure-panel"><div className="panel-head"><div><h3>โครงสร้างและผู้รับผิดชอบ</h3><p>คำอธิบายประกอบ Fr-02 และ Fr-03.1</p></div></div><div className="form-grid form-grid-three">{field("activities", "กิจกรรมและพื้นที่", "เช่น โรงงาน 1 อาคารสำนักงาน")}{field("department", "หน่วยงานที่เกี่ยวข้อง", "เช่น ผลิต คลัง จัดซื้อ")}{field("responsibility", "ผู้รวบรวมและอนุมัติ", "เช่น ฝ่ายสิ่งแวดล้อม / ผู้บริหาร")}</div><p className="hint">บันทึกเป็นข้อความประกอบ ยังไม่ใช่แผนภาพองค์กร</p></section>
           </TabsContent>
           <TabsContent value="significance" className="tab-content">
             <div className="section-line"><div><span className="section-kicker">FR-03.2 · SCOPE 3</span><h2>เลือกกิจกรรมทางอ้อมที่เกี่ยวข้อง</h2><p>เริ่มจากระบุว่าบริษัทมีแหล่งปล่อยประเภทใด แล้วขยายเฉพาะหมวดที่ต้องประเมิน</p></div><button className="btn primary" disabled={saving} onClick={() => void saveMeta()}><Save size={17} /> บันทึกผลประเมิน</button></div>
-            <div className="scope-intro"><span className="intro-icon"><CircleHelp size={21} /></span><div><strong>เลือกแล้ว {chosenCategories} จาก 15 หมวด</strong><p>เครื่องหมายในหน้านี้ใช้คัดเลือกหมวดที่ควรเก็บข้อมูลต่อ ยังไม่ใช่ปริมาณการปล่อย</p></div></div>
-            <div className="sig-list">{categories.map((cat, i) => { const item = sig[cat] || {}; const open = expandedCategory === i; return <article className={`sig-card ${item.present ? "is-selected" : ""}`} key={cat}><div className="sig-main"><span className="sig-index">{String(i + 1).padStart(2, "0")}</span><div className="sig-name"><strong>{thCategories[i]}</strong><small>{cat}</small></div><label className="check"><input type="checkbox" checked={!!item.present} onChange={e => setSig(s => ({ ...s, [cat]: { ...item, present: e.target.checked } }))} /> มีในองค์กร</label><button type="button" className="expand-button" aria-label={`ประเมิน ${thCategories[i]}`} aria-expanded={open} onClick={() => setExpandedCategory(open ? null : i)}><ChevronDown size={19} className={open ? "rotated" : ""} /></button></div>
+            <div className="scope-intro"><span className="intro-icon"><CircleHelp size={21} /></span><div><strong>เลือกแล้ว {chosenCategories} จาก 15 หมวด</strong><p>หมวดที่มีรายการบันทึกแล้วจะถูกนับว่ามีในองค์กร และกดดูรายการที่เชื่อมกันได้</p></div></div>
+            <div className="sig-list">{categories.map((cat, i) => { const item = sig[cat] || {}; const open = expandedCategory === i; const hasEntries = categoryCounts[cat] > 0; return <article className={`sig-card ${item.present || hasEntries ? "is-selected" : ""}`} key={cat}><div className="sig-main"><span className="sig-index">{String(i + 1).padStart(2, "0")}</span><div className="sig-name"><strong>{thCategories[i]}</strong><small>{cat}{hasEntries ? ` · ${categoryCounts[cat]} รายการที่บันทึก` : ""}</small></div><label className="check"><input type="checkbox" checked={!!item.present || hasEntries} disabled={hasEntries} onChange={e => setSig(s => ({ ...s, [cat]: { ...item, present: e.target.checked } }))} /> มีในองค์กร</label>{(item.present || hasEntries) && <button type="button" className="text-button" onClick={() => addScopedEntry(3, cat)}>เพิ่มรายการ</button>}{hasEntries && <button type="button" className="text-button" onClick={() => openEntries("3", "all", cat)}>ดูรายการ</button>}<button type="button" className="expand-button" aria-label={`ประเมิน ${thCategories[i]}`} aria-expanded={open} onClick={() => setExpandedCategory(open ? null : i)}><ChevronDown size={19} className={open ? "rotated" : ""} /></button></div>
                     {open && <div className="sig-detail"><p>เกณฑ์ที่เกี่ยวข้องกับหมวดนี้ (เลือกได้หลายข้อ)</p><div className="sig-criteria">{criteria.map(([key, label]) => <label className="check" key={key}><input type="checkbox" checked={!!item[key]} onChange={e => setSig(s => ({ ...s, [cat]: { ...item, [key]: e.target.checked } }))} /> {label}</label>)}</div><label className="field"><span>เหตุผล / หมายเหตุ</span><input value={item.note || ""} placeholder="เช่น มีข้อมูลจากผู้รับจ้างขนส่ง" onChange={e => setSig(s => ({ ...s, [cat]: { ...item, note: e.target.value } }))} /></label></div>}
                   </article>; })}</div>
           </TabsContent>
           <TabsContent value="factors" className="tab-content">
             <div className="section-line"><div><span className="section-kicker">EF TGO AR5 V2</span><h2>เลือกค่า EF ที่บริษัทใช้</h2><p>เลือกปัจจัยที่จะให้ปรากฏในหน้าบันทึกกิจกรรม · {factors.length} ค่าในไฟล์อ้างอิง</p></div><button className="btn primary" disabled={saving} onClick={() => void saveMeta()}><Save size={17} /> บันทึกการตั้งค่า</button></div>
             <section className="panel catalog-settings"><div><h3>แสดงเฉพาะรายการของบริษัท</h3><p>เลือกปัจจัยจากตารางด้านล่าง แล้วเปิดตัวเลือกนี้เพื่อลดรายการที่ไม่เกี่ยวข้องในหน้ากรอก</p></div><label className="toggle"><input type="checkbox" checked={!!profile.onlyActiveFactors} onChange={e => setProfile(p => ({ ...p, onlyActiveFactors: e.target.checked }))} /><span className="toggle-track" /><strong>{profile.onlyActiveFactors ? "เปิดแล้ว" : "ปิดอยู่"}</strong></label></section>
-            <section className="panel catalog-panel"><div className="catalog-toolbar"><div className="search-box"><Search size={17} /><input aria-label="ค้นหาค่า EF" placeholder="ค้นหาเชื้อเพลิง ไฟฟ้า หรือหน่วย" value={catalogQuery} onChange={e => setCatalogQuery(e.target.value)} /></div><span className="panel-tag">เลือกใช้ {(profile.activeFactors || []).length} ค่า</span></div><div className="factor-table-wrap"><table className="factor-table"><thead><tr><th>ปัจจัยการปล่อย</th><th>หน่วย</th><th>kgCO₂e/หน่วย</th><th>เลือกใช้</th><th></th></tr></thead><tbody>{catalogMatches.sort((a, b) => Number((profile.activeFactors || []).includes(b.id)) - Number((profile.activeFactors || []).includes(a.id))).map(f => <tr key={f.id}><td><strong>{f.name}</strong><small>EF TGO AR5 V2 · แถว {f.row} · {f.source}</small></td><td>{f.unit}</td><td className="numeric">{fmt(f.factor, 6)}</td><td><label className="check"><input type="checkbox" checked={(profile.activeFactors || []).includes(f.id)} onChange={e => setProfile(p => ({ ...p, activeFactors: e.target.checked ? [...(p.activeFactors || []), f.id] : (p.activeFactors || []).filter(id => id !== f.id) }))} /><span className="sr-only">เลือกใช้ {f.name}</span></label></td><td><button className="text-button" onClick={() => { selectFactor(f); go("activities"); }}>ใช้ค่านี้ <ArrowRight size={14} /></button></td></tr>)}</tbody></table></div>{!catalogMatches.length && <div className="empty"><strong>ไม่พบค่า EF ที่ค้นหา</strong><p>ลองใช้ชื่อรายการหรือหน่วยอื่น</p></div>}</section>
+            <section className="panel catalog-panel"><div className="catalog-toolbar"><div className="search-box"><Search size={17} /><input aria-label="ค้นหาค่า EF" placeholder="ค้นหาเชื้อเพลิง ไฟฟ้า หรือหน่วย" value={catalogQuery} onChange={e => setCatalogQuery(e.target.value)} /></div><NativeSelect aria-label="กรองค่า EF ตาม Scope" value={catalogScope} onChange={e => setCatalogScope(e.target.value)}><option value="all">ทุก Scope</option>{Object.entries(scopes).map(([id, label]) => <option value={id} key={id}>{label}</option>)}</NativeSelect><span className="panel-tag">เลือกใช้ {(profile.activeFactors || []).length} ค่า</span></div><div className="factor-table-wrap"><table className="factor-table"><thead><tr><th>ปัจจัยการปล่อย</th><th>หน่วย</th><th>kgCO₂e/หน่วย</th><th>เลือกใช้</th><th></th></tr></thead><tbody>{catalogMatches.sort((a, b) => Number((profile.activeFactors || []).includes(b.id)) - Number((profile.activeFactors || []).includes(a.id))).map(f => <tr key={f.id}><td><strong>{f.name}</strong><small>Scope {f.defaultScope === 4 ? "รายงานแยก" : f.defaultScope} · EF TGO AR5 V2 · แถว {f.row} · {f.source}</small></td><td>{f.unit}</td><td className="numeric">{fmt(f.factor, 6)}</td><td><label className="check"><input type="checkbox" checked={(profile.activeFactors || []).includes(f.id)} onChange={e => setProfile(p => ({ ...p, activeFactors: e.target.checked ? [...(p.activeFactors || []), f.id] : (p.activeFactors || []).filter(id => id !== f.id) }))} /><span className="sr-only">เลือกใช้ {f.name}</span></label></td><td><button className="text-button" onClick={() => { selectFactor(f); go("activities"); }}>ใช้ค่านี้ <ArrowRight size={14} /></button></td></tr>)}</tbody></table></div>{!catalogMatches.length && <div className="empty"><strong>ไม่พบค่า EF ที่ค้นหา</strong><p>ลองใช้ชื่อรายการหรือหน่วยอื่น หรือเลือก Scope อื่น</p></div>}</section>
             <p className="catalog-note"><Info size={16} /> ค่า EF ต้องตรงกับชนิดกิจกรรมและช่วงปีที่รายงาน ค่าไฟฟ้าในไฟล์มีหลายช่วงปีให้เลือก</p>
           </TabsContent>
         </>}
