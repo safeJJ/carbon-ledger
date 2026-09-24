@@ -1,6 +1,6 @@
 # Carbon Ledger
 
-เว็บบันทึกและคำนวณ Carbon Footprint of Organization (CFO) สำหรับหลายบัญชี พัฒนาด้วย Next.js และ Supabase รองรับการขึ้นเว็บด้วย Vercel
+เว็บบันทึกและคำนวณ Carbon Footprint of Organization (CFO) สำหรับหลายบัญชี พัฒนาด้วย Next.js และ Supabase และเผยแพร่ที่ https://carbon-ledger-sigma.vercel.app บน Vercel Hobby
 
 ## เริ่มใช้งาน
 
@@ -8,7 +8,7 @@
 2. ตั้งค่า `NEXT_PUBLIC_CARBON_LEDGER_SUPABASE_URL` และ `NEXT_PUBLIC_CARBON_LEDGER_SUPABASE_PUBLISHABLE_KEY` จากหน้า Connect ของ Supabase ใน Vercel (Production, Preview และ Development ตามที่ใช้งาน)
 3. ตั้งค่า Authentication > URL Configuration ให้ Site URL เป็นโดเมน Vercel ที่ใช้งานจริง และเพิ่ม Redirect URLs ที่ต้องการทดสอบ
 4. เชื่อม GitHub repo กับ Vercel โดยเลือก Framework Preset: Next.js แล้ว Deploy
-5. ผู้ใช้สมัครด้วยอีเมลและรหัสผ่าน ยืนยันอีเมลเมื่อระบบร้องขอ แล้วเริ่มบันทึกข้อมูล
+5. ผู้ใช้สมัครด้วยอีเมลและรหัสผ่านแล้วเริ่มบันทึกข้อมูลได้ทันที ปัจจุบันปิดการยืนยันอีเมลเพื่อใช้งานโดยไม่ต้องมี SMTP ผู้ใช้จึงต้องเก็บรหัสผ่านเอง เพราะระบบกู้รหัสผ่านผ่านอีเมลของคนนอกทีมยังใช้ไม่ได้ หากต้องการยืนยันอีเมลและกู้รหัสผ่าน ให้ตั้งบริการ SMTP ของตนเองใน Supabase แล้วเปิด Confirm email อีกครั้ง
 
 สำหรับทดสอบในเครื่อง ให้คัดลอก `.env.example` เป็น `.env.local` แล้วใส่ URL และ publishable key ของโปรเจกต์ Supabase จากนั้นรัน `pnpm install` และ `pnpm dev`
 
