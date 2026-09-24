@@ -54,6 +54,7 @@ body { margin: 0; background: var(--background); color: var(--foreground); font-
 .auth-error, .auth-success { padding: 10px 12px; border-radius: 12px; font-size: .82rem; }
 .auth-error { color: #8f3030; background: #fff0f0; }
 .auth-success { color: #173D2D; background: #EAF1E5; }
+.auth-hint { color: #627468; font-size: .78rem; line-height: 1.55; margin: -4px 0 0; }
 .auth-switch { margin-top: 22px; text-align: center; font-size: .85rem; color: #627468; }
 .auth-switch button { border: 0; background: none; color: #173D2D; font-weight: 800; text-decoration: underline; }
 .account-actions { display: flex; align-items: center; gap: 11px; min-width: 0; }
