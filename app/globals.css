@@ -317,6 +317,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .toggle strong { font-size: .78rem; color: #46644A; }
 .catalog-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
 .catalog-toolbar .search-box { width: min(100%, 430px); }
+.catalog-toolbar select { max-width: 220px; min-width: 140px; }
+.metric-link, .panel-link { margin-top: 12px; }
+.linked-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.form-warning { margin: 0 0 15px; padding: 10px 12px; border-radius: 12px; color: #9A493A; background: #FFF2EF; font-size: .79rem; }
+.field-help { justify-content: center; align-items: start; }
+.factor-scope-note { padding: 10px 13px; border-bottom: 1px solid #E4EBE1; color: #4B6953; background: #F5F8F4; font-size: .75rem; }
 .factor-table-wrap { overflow-x: auto; }
 .factor-table { width: 100%; border-collapse: collapse; min-width: 680px; font-size: .83rem; }
 .factor-table th { padding: 11px 12px; background: #F5F8F4; text-align: left; color: #647467; font-size: .74rem; }
@@ -381,6 +387,9 @@ footer { padding: 0 clamp(20px, 3.5vw, 54px) 24px; color: #8B998D; font-size: .7
   .sig-main .expand-button { margin-left: auto; }
   .sig-detail { margin-left: 16px; }
   .catalog-settings { align-items: start; flex-direction: column; }
+  .catalog-toolbar { flex-wrap: wrap; }
+  .catalog-toolbar .search-box { width: 100%; }
+  .catalog-toolbar select { flex: 1; }
 }
 
 /* Keep selection fields and filters readable in the two-column workspace. */
