@@ -369,7 +369,7 @@ export default function Home() {
   const openEntries = (scope = "all", period = "all", category = "all", onlyMismatches = false) => {
     pendingRecordsFocus.current = true;
     setScopeFilter(scope); setPeriodFilter(period); setCategoryFilter(category);
-    setMismatchOnly(onlyMismatches); setQuery(""); go("activities");
+    setMismatchOnly(onlyMismatches); setQuery(""); setTab("activities");
   };
   const addScopedEntry = (scope: number, category = "") => {
     resetDraft();
