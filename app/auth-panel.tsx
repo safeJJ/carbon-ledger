@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { ArrowRight, Leaf, LockKeyhole, ShieldCheck } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Leaf, LockKeyhole, ShieldCheck } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 
 export function AuthPanel() {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -39,8 +40,21 @@ export function AuthPanel() {
   return <main className="auth-page">
     <div className="auth-hero"><div className="auth-brand"><span className="mark"><Leaf size={23} /></span><b>Carbon Ledger</b></div><div><span className="auth-overline">CARBON FOOTPRINT OF ORGANIZATION</span><h1>จัดการข้อมูลคาร์บอน<br />ขององค์กรได้อย่างเป็นระบบ</h1><p>เลือกค่า EF บันทึกกิจกรรม และดูผลการปล่อยได้จากพื้นที่ส่วนตัวของคุณ</p></div><div className="auth-points"><span><ShieldCheck size={19} /> ข้อมูลแยกตามบัญชี</span><span><LockKeyhole size={19} /> บันทึกในฐานข้อมูล Supabase</span></div></div>
     <section className="auth-card"><div className="auth-card-head"><span className="auth-overline">ยินดีต้อนรับ</span><h2>{mode === "signin" ? "เข้าสู่ระบบ" : "สร้างบัญชีผู้ใช้"}</h2><p>{mode === "signin" ? "เข้าสู่ระบบเพื่อดูข้อมูลของคุณ" : "สร้างพื้นที่ส่วนตัวสำหรับเริ่มบันทึกข้อมูล"}</p></div>
-      <form onSubmit={submit} className="auth-form"><label>อีเมล<input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@company.com" autoComplete="email" required /></label><label>รหัสผ่าน<input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete={mode === "signin" ? "current-password" : "new-password"} minLength={mode === "signup" ? 10 : 6} required /></label>{mode === "signup" && <p className="auth-hint">ใช้รหัสผ่านอย่างน้อย 10 ตัวอักษรและเก็บไว้ให้ดี ขณะนี้ยังไม่มีอีเมลสำหรับกู้รหัสผ่าน</p>}{error && <p className="auth-error" role="alert">{error}</p>}{message && <p className="auth-success" role="status">{message}</p>}<button className="btn primary" type="submit" disabled={busy}>{busy ? "กำลังดำเนินการ…" : mode === "signin" ? "เข้าสู่ระบบ" : "สร้างบัญชี"}<ArrowRight size={17} /></button></form>
-      <div className="auth-switch">{mode === "signin" ? "ยังไม่มีบัญชี?" : "มีบัญชีแล้ว?"} <button type="button" onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setError(""); setMessage(""); }}>{mode === "signin" ? "สมัครใช้งาน" : "เข้าสู่ระบบ"}</button></div>
+      <form onSubmit={submit} className="auth-form">
+        <label>อีเมล<input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@company.com" autoComplete="email" required /></label>
+        <div className="auth-password-group">
+          <label htmlFor="auth-password">รหัสผ่าน</label>
+          <div className="auth-password-field">
+            <input id="auth-password" type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} autoComplete={mode === "signin" ? "current-password" : "new-password"} minLength={mode === "signup" ? 10 : 6} required />
+            <button type="button" aria-label={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"} aria-pressed={showPassword} onClick={() => setShowPassword(value => !value)}>{showPassword ? <EyeOff size={19} /> : <Eye size={19} />}</button>
+          </div>
+        </div>
+        {mode === "signup" && <p className="auth-hint">ใช้รหัสผ่านอย่างน้อย 10 ตัวอักษรและเก็บไว้ให้ดี ขณะนี้ยังไม่มีอีเมลสำหรับกู้รหัสผ่าน</p>}
+        {error && <p className="auth-error" role="alert">{error}</p>}
+        {message && <p className="auth-success" role="status">{message}</p>}
+        <button className="btn primary" type="submit" disabled={busy}>{busy ? "กำลังดำเนินการ…" : mode === "signin" ? "เข้าสู่ระบบ" : "สร้างบัญชี"}<ArrowRight size={17} /></button>
+      </form>
+      <div className="auth-switch">{mode === "signin" ? "ยังไม่มีบัญชี?" : "มีบัญชีแล้ว?"} <button type="button" onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setShowPassword(false); setError(""); setMessage(""); }}>{mode === "signin" ? "สมัครใช้งาน" : "เข้าสู่ระบบ"}</button></div>
     </section>
   </main>;
 }

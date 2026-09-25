@@ -50,6 +50,12 @@ body { margin: 0; background: var(--background); color: var(--foreground); font-
 .auth-form { display: grid; gap: 16px; margin-top: 30px; }
 .auth-form label { display: grid; gap: 7px; font-weight: 700; font-size: .85rem; }
 .auth-form input { width: 100%; height: 45px; padding: 0 13px; border: 1px solid #DCEBDD; border-radius: 12px; background: #FFFFFF; color: #20362C; }
+.auth-password-group { display: grid; gap: 7px; }
+.auth-password-group label { font-weight: 700; }
+.auth-password-field { position: relative; }
+.auth-password-field input { padding-right: 50px; }
+.auth-password-field button { position: absolute; top: 2px; right: 2px; display: grid; place-items: center; width: 41px; height: 41px; border: 0; border-radius: 12px; background: transparent; color: #527561; cursor: pointer; }
+.auth-password-field button:focus-visible { outline: 2px solid #14573E; outline-offset: 2px; }
 .auth-form .btn { margin-top: 7px; width: 100%; }
 .auth-error, .auth-success { padding: 10px 12px; border-radius: 12px; font-size: .82rem; }
 .auth-error { color: #B43D40; background: #F5F9F5; }
