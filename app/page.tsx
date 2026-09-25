@@ -186,7 +186,9 @@ export default function Home() {
   const base = totals.base[1] + totals.base[2] + totals.base[3];
   const reportCount = entries.filter(e => e.period === "current").length;
   const baseCount = entries.filter(e => e.period === "base").length;
-  const setup = [!!profile.organization && !!profile.reportingYear, !!profile.activeFactors?.length, entries.length > 0];
+  const savedFactors = useMemo(() => ((JSON.parse(savedMeta) as { profile: Profile }).profile.activeFactors || []), [savedMeta]);
+  const factorSelectionDirty = JSON.stringify(profile.activeFactors || []) !== JSON.stringify(savedFactors);
+  const setup = [!!profile.organization && !!profile.reportingYear, savedFactors.length > 0, entries.length > 0];
   const completed = setup.filter(Boolean).length;
   const metaDirty = !loading && JSON.stringify({ profile, sig }) !== savedMeta;
   const organizationSummary = ([
@@ -203,7 +205,7 @@ export default function Home() {
     (!mismatchOnly || !dateMatchesPeriod(e.date, e.period === "base" ? profile.baseYear || "" : profile.reportingYear || "")) &&
     (!query || [e.title, e.factorName, e.notes].join(" ").toLowerCase().includes(query.toLowerCase()))
   );
-  const allowed = factors.filter(f => (profile.activeFactors || []).includes(f.id));
+  const allowed = factors.filter(f => savedFactors.includes(f.id));
   const scopeFactors = allowed.filter(f => f.defaultScope === Number(form.scope));
   const factorMatches = factorQuery.trim()
     ? scopeFactors.filter(f => `${f.name} ${f.original} ${f.unit}`.toLowerCase().includes(factorQuery.trim().toLowerCase())).slice(0, 8)
@@ -246,7 +248,7 @@ export default function Home() {
       setProfile(nextProfile);
       setSavedMeta(JSON.stringify({ profile: nextProfile, sig }));
       setNotice("บันทึกค่า EF ที่บริษัทเลือกใช้แล้ว");
-      selectFactor(f); go("activities");
+      selectFactor(f); go("activities", true);
     } catch (error) {
       if (userIdRef.current === user.id) setFailure(error instanceof Error ? error.message : "เลือกค่า EF ไม่สำเร็จ");
     } finally { if (userIdRef.current === user.id) setSaving(false); }
@@ -365,7 +367,12 @@ export default function Home() {
     <label className="field" key={key}><span>{label}</span><input type={type} min={type === "number" ? "0" : undefined}
       value={profile[key] || ""} placeholder={placeholder}
       onChange={e => setProfile(p => ({ ...p, [key]: e.target.value }))} /></label>;
-  const go = (value: string) => { setTab(value); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const go = (value: string, keepFactorChanges = false) => {
+    if (tab === "factors" && value !== "factors" && !keepFactorChanges && !saving && factorSelectionDirty) {
+      setProfile(p => ({ ...p, activeFactors: [...savedFactors] }));
+    }
+    setTab(value); window.scrollTo({ top: 0, behavior: "smooth" });
+  };
   const openEntries = (scope = "all", period = "all", category = "all", onlyMismatches = false) => {
     pendingRecordsFocus.current = true;
     setScopeFilter(scope); setPeriodFilter(period); setCategoryFilter(category);
@@ -395,7 +402,7 @@ export default function Home() {
     </aside>
     <div className="workspace">
       <header className="topbar"><div className="crumb"><span>บัญชีคาร์บอน</span><ChevronRight size={15} /><b>{profile.organization || "องค์กรของคุณ"}</b></div><div className="account-actions"><span className="privacy"><span className="source-dot" /> {user.email}</span><button className="signout" onClick={() => void signOut()}>ออกจากระบบ</button></div></header>
-      <Tabs value={tab} onValueChange={setTab} className="main-tabs">
+      <Tabs value={tab} onValueChange={go} className="main-tabs">
         <div className="page-head"><div><div className="eyebrow">CARBON FOOTPRINT OF ORGANIZATION</div><h1>{tab === "overview" ? "ภาพรวมการปล่อยก๊าซเรือนกระจก" : tab === "activities" ? "บันทึกกิจกรรม" : tab === "organization" ? "ข้อมูลองค์กร" : tab === "significance" ? "ประเมิน Scope 3" : "คลังค่า EF"}</h1><p>{profile.organization || "ตั้งค่าข้อมูลองค์กรเพื่อเริ่มจัดทำบัญชีการปล่อย"}{profile.reportingYear ? ` · ${profile.reportingYear}` : ""}</p></div><div className="head-actions"><button className="btn ghost export-button" onClick={exportCSV} disabled={!entries.length}><Download size={17} /> ส่งออก CSV</button><button className="btn primary" onClick={() => { resetDraft(); go("activities"); }}><Plus size={18} /> เพิ่มรายการ</button></div></div>
         <TabsList className="navigation" aria-label="หน้าของแบบฟอร์ม">
           <TabsTrigger value="overview"><ChartNoAxesColumn size={17} /> ภาพรวม</TabsTrigger>
@@ -452,7 +459,7 @@ export default function Home() {
                     {customFactor && !factorPickerOpen && <div className="selected-factor custom-selected"><div className="selected-icon"><SlidersHorizontal size={20} /></div><div><span>ค่า EF จากแหล่งของคุณ</span><strong>{form.factorName || "กรอกข้อมูลปัจจัยด้านล่าง"}</strong></div><button type="button" onClick={() => setFactorPickerOpen(true)}>เปลี่ยน</button></div>}
                     {factorPickerOpen && <div className="factor-chooser"><p className="factor-scope-note">แสดงค่า EF จากชุดข้อมูล TGO เฉพาะ {scopes[Number(form.scope)]} · {scopeFactors.length} รายการ</p><div className="search-box"><Search size={17} /><input aria-label="ค้นหาค่า EF สำหรับกิจกรรม" placeholder="ค้นหาค่า EF ใน Scope นี้" value={factorQuery} onChange={e => setFactorQuery(e.target.value)} /></div>
                       <div className="factor-suggestions">{factorMatches.map(f => <button className="factor-option" type="button" key={f.id} onClick={() => selectFactor(f)}><span className="factor-option-icon"><Zap size={16} /></span><span><strong>{f.name}</strong><small>{f.defaultScope === 4 ? "รายงานแยก" : `Scope ${f.defaultScope}`} · แถว {f.row}</small></span><b>{fmt(f.factor, 5)} <small>/{f.unit}</small></b></button>)}
-                        {!factorMatches.length && <div className="factor-empty"><strong>{!(profile.activeFactors || []).length ? "ยังไม่ได้เลือกค่า EF ที่บริษัทใช้" : !scopeFactors.length ? "ยังไม่ได้เลือกค่า EF สำหรับ Scope นี้" : "ไม่พบค่า EF ที่ค้นหาใน Scope นี้"}</strong><p>เลือกปัจจัยจากคลังค่า EF แล้วบันทึกการตั้งค่า รายการจึงจะปรากฏที่นี่</p><button type="button" onClick={() => { setCatalogScope(String(form.scope)); go("factors"); }}>ไปเลือกค่า EF <ArrowRight size={14} /></button></div>}
+                        {!factorMatches.length && <div className="factor-empty"><strong>{!savedFactors.length ? "ยังไม่ได้บันทึกค่า EF ที่บริษัทใช้" : !scopeFactors.length ? "ยังไม่ได้บันทึกค่า EF สำหรับ Scope นี้" : "ไม่พบค่า EF ที่ค้นหาใน Scope นี้"}</strong><p>เลือกปัจจัยจากคลังค่า EF แล้วบันทึกการตั้งค่า รายการจึงจะปรากฏที่นี่</p><button type="button" onClick={() => { setCatalogScope(String(form.scope)); go("factors"); }}>ไปเลือกค่า EF <ArrowRight size={14} /></button></div>}
                       </div><div className="factor-chooser-footer"><span>{Number(form.scope) === 3 ? "TGO ชุดนี้มีค่า Scope 3 จำกัด · ใช้ EF จากแหล่งอื่นพร้อมอ้างอิงได้" : factorQuery ? "เลือกแถวให้ตรงกับชนิดกิจกรรม" : "รายการที่ใช้บ่อย · ค้นหาชื่อเพื่อดูค่าอื่น"}</span><button type="button" onClick={useCustomFactor}>กรอก EF เอง <ArrowRight size={15} /></button></div></div>}
                   </div>
                   <div className="form-section"><div className="step-heading"><span>3</span><div><strong>กรอกปริมาณที่ใช้</strong><small>ใช้หน่วยเดียวกับค่า EF ที่เลือก</small></div></div>
@@ -490,8 +497,8 @@ export default function Home() {
           </TabsContent>
           <TabsContent value="factors" className="tab-content">
             <div className="section-line"><div><span className="section-kicker">EF TGO AR5 V2</span><h2>เลือกค่า EF ที่บริษัทใช้</h2><p>เลือกปัจจัยที่จะให้ปรากฏในหน้าบันทึกกิจกรรม · {factors.length} ค่าในไฟล์อ้างอิง</p></div><button className="btn primary" disabled={saving} onClick={() => void saveMeta()}><Save size={17} /> บันทึกการตั้งค่า</button></div>
-            <section className="panel catalog-settings"><div><h3>ค่า EF ที่บริษัทเลือกใช้</h3><p>ติ๊กปัจจัยที่ใช้จริงในตารางแล้วกดบันทึกการตั้งค่า หน้าบันทึกกิจกรรมจะแสดงเฉพาะค่าที่ติ๊กและตรงกับ Scope</p></div><span className="panel-tag">เลือกแล้ว {(profile.activeFactors || []).length} ค่า</span></section>
-            <section className="panel catalog-panel"><div className="catalog-toolbar"><div className="search-box"><Search size={17} /><input aria-label="ค้นหาค่า EF" placeholder="ค้นหาเชื้อเพลิง ไฟฟ้า หรือหน่วย" value={catalogQuery} onChange={e => setCatalogQuery(e.target.value)} /></div><NativeSelect aria-label="กรองค่า EF ตาม Scope" value={catalogScope} onChange={e => setCatalogScope(e.target.value)}><option value="all">ทุก Scope</option>{Object.entries(scopes).map(([id, label]) => <option value={id} key={id}>{label}</option>)}</NativeSelect><span className="panel-tag">เลือกใช้ {(profile.activeFactors || []).length} ค่า</span></div><div className="factor-table-wrap"><table className="factor-table"><thead><tr><th>ปัจจัยการปล่อย</th><th>หน่วย</th><th>kgCO₂e/หน่วย</th><th>เลือกใช้</th><th></th></tr></thead><tbody>{catalogMatches.sort((a, b) => Number((profile.activeFactors || []).includes(b.id)) - Number((profile.activeFactors || []).includes(a.id))).map(f => <tr key={f.id}><td><strong>{f.name}</strong><small>{f.defaultScope === 4 ? "รายงานแยก" : `Scope ${f.defaultScope}`} · EF TGO AR5 V2 · แถว {f.row} · {f.source}</small></td><td>{f.unit}</td><td className="numeric">{fmt(f.factor, 6)}</td><td><label className="check"><input type="checkbox" checked={(profile.activeFactors || []).includes(f.id)} onChange={e => toggleCatalogFactor(f, e.target.checked)} /><span className="sr-only">เลือกใช้ {f.name}</span></label></td><td><button className="text-button" disabled={saving} onClick={() => void chooseCatalogFactor(f)}>{(profile.activeFactors || []).includes(f.id) ? "ใช้ค่านี้" : "เลือกและใช้"} <ArrowRight size={14} /></button></td></tr>)}</tbody></table></div>{!catalogMatches.length && <div className="empty"><strong>ไม่พบค่า EF ที่ค้นหา</strong><p>ลองใช้ชื่อรายการหรือหน่วยอื่น หรือเลือก Scope อื่น</p></div>}</section>
+            <section className="panel catalog-settings"><div><h3>ค่า EF ที่บริษัทเลือกใช้</h3><p>ติ๊กปัจจัยที่ใช้จริงในตารางแล้วกดบันทึกการตั้งค่า หน้าบันทึกกิจกรรมจะแสดงเฉพาะค่าที่บันทึกสำเร็จและตรงกับ Scope · ปุ่ม “บันทึกแล้วใช้” จะบันทึกค่าที่ติ๊กทั้งหมดและไปหน้ากิจกรรม</p></div><span className="panel-tag">{factorSelectionDirty ? `รอบันทึก ${(profile.activeFactors || []).length} ค่า` : `บันทึกแล้ว ${savedFactors.length} ค่า`}</span></section>
+            <section className="panel catalog-panel"><div className="catalog-toolbar"><div className="search-box"><Search size={17} /><input aria-label="ค้นหาค่า EF" placeholder="ค้นหาเชื้อเพลิง ไฟฟ้า หรือหน่วย" value={catalogQuery} onChange={e => setCatalogQuery(e.target.value)} /></div><NativeSelect aria-label="กรองค่า EF ตาม Scope" value={catalogScope} onChange={e => setCatalogScope(e.target.value)}><option value="all">ทุก Scope</option>{Object.entries(scopes).map(([id, label]) => <option value={id} key={id}>{label}</option>)}</NativeSelect><span className="panel-tag">{factorSelectionDirty ? `กำลังเลือก ${(profile.activeFactors || []).length} ค่า · ยังไม่บันทึก` : `บันทึกแล้ว ${savedFactors.length} ค่า`}</span></div><div className="factor-table-wrap"><table className="factor-table"><thead><tr><th>ปัจจัยการปล่อย</th><th>หน่วย</th><th>kgCO₂e/หน่วย</th><th>เลือกใช้</th><th></th></tr></thead><tbody>{catalogMatches.sort((a, b) => Number((profile.activeFactors || []).includes(b.id)) - Number((profile.activeFactors || []).includes(a.id))).map(f => <tr key={f.id}><td><strong>{f.name}</strong><small>{f.defaultScope === 4 ? "รายงานแยก" : `Scope ${f.defaultScope}`} · EF TGO AR5 V2 · แถว {f.row} · {f.source}</small></td><td>{f.unit}</td><td className="numeric">{fmt(f.factor, 6)}</td><td><label className="check"><input type="checkbox" checked={(profile.activeFactors || []).includes(f.id)} onChange={e => toggleCatalogFactor(f, e.target.checked)} /><span className="sr-only">เลือกใช้ {f.name}</span></label></td><td><button className="text-button" disabled={saving} onClick={() => void chooseCatalogFactor(f)}>บันทึกแล้วใช้ <ArrowRight size={14} /></button></td></tr>)}</tbody></table></div>{!catalogMatches.length && <div className="empty"><strong>ไม่พบค่า EF ที่ค้นหา</strong><p>ลองใช้ชื่อรายการหรือหน่วยอื่น หรือเลือก Scope อื่น</p></div>}</section>
             <p className="catalog-note"><Info size={16} /> ค่า EF ต้องตรงกับชนิดกิจกรรมและช่วงปีที่รายงาน ค่าไฟฟ้าในไฟล์มีหลายช่วงปีให้เลือก</p>
           </TabsContent>
         </>}
