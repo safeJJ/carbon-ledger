@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Carbon Ledger">
-  <rect width="64" height="64" rx="15" fill="#004370"/>
-  <path d="M30 50c-10 0-17-7-17-17 0-16 16-23 39-25-2 23-9 42-22 42Z" fill="#C4DCED"/>
+  <rect width="64" height="64" rx="18" fill="#103E2D"/>
+  <path d="M30 50c-10 0-17-7-17-17 0-16 16-23 39-25-2 23-9 42-22 42Z" fill="#C0E8B4"/>
   <path d="M14 53c6-15 17-25 32-34" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
 </svg>
