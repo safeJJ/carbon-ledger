@@ -186,8 +186,9 @@ export default function Home() {
   const base = totals.base[1] + totals.base[2] + totals.base[3];
   const reportCount = entries.filter(e => e.period === "current").length;
   const baseCount = entries.filter(e => e.period === "base").length;
-  const savedFactors = useMemo(() => ((JSON.parse(savedMeta) as { profile: Profile }).profile.activeFactors || []), [savedMeta]);
-  const factorSelectionDirty = JSON.stringify(profile.activeFactors || []) !== JSON.stringify(savedFactors);
+  const savedProfile = useMemo(() => (JSON.parse(savedMeta) as { profile: Profile }).profile, [savedMeta]);
+  const savedFactors = savedProfile.activeFactors || [];
+  const factorSelectionDirty = JSON.stringify(profile.activeFactors) !== JSON.stringify(savedProfile.activeFactors);
   const setup = [!!profile.organization && !!profile.reportingYear, savedFactors.length > 0, entries.length > 0];
   const completed = setup.filter(Boolean).length;
   const metaDirty = !loading && JSON.stringify({ profile, sig }) !== savedMeta;
@@ -356,7 +357,12 @@ export default function Home() {
     } catch (error) { setFailure(`ออกจากระบบไม่สำเร็จ: ${error instanceof Error ? error.message : "กรุณาลองใหม่"}`); }
   }
   function toggleCatalogFactor(f: Factor, checked: boolean) {
-    setProfile(p => ({ ...p, activeFactors: checked ? [...new Set([...(p.activeFactors || []), f.id])] : (p.activeFactors || []).filter(id => id !== f.id) }));
+    setProfile(p => {
+      const activeFactors = checked ? [...new Set([...(p.activeFactors || []), f.id])] : (p.activeFactors || []).filter(id => id !== f.id);
+      const next: Profile = { ...p, activeFactors };
+      if (!activeFactors.length && savedProfile.activeFactors === undefined) delete next.activeFactors;
+      return next;
+    });
     if (!checked && !editId && selectedFactor?.id === f.id) {
       setSelectedFactor(null); setFactorPickerOpen(true);
       setForm(v => ({ ...v, title: v.title === f.name ? "" : v.title,
@@ -369,7 +375,12 @@ export default function Home() {
       onChange={e => setProfile(p => ({ ...p, [key]: e.target.value }))} /></label>;
   const go = (value: string, keepFactorChanges = false) => {
     if (tab === "factors" && value !== "factors" && !keepFactorChanges && !saving && factorSelectionDirty) {
-      setProfile(p => ({ ...p, activeFactors: [...savedFactors] }));
+      setProfile(p => {
+        const next = { ...p };
+        if (savedProfile.activeFactors === undefined) delete next.activeFactors;
+        else next.activeFactors = [...savedFactors];
+        return next;
+      });
     }
     setTab(value); window.scrollTo({ top: 0, behavior: "smooth" });
   };
