@@ -109,6 +109,7 @@ export default function Home() {
   useEffect(() => {
     const supabase = getSupabase();
     if (!supabase) return;
+    const auth = supabase.auth;
     function applyUser(next: User | null) {
       if (next?.id !== userIdRef.current) {
         userIdRef.current = next?.id ?? null;
@@ -125,13 +126,29 @@ export default function Home() {
       setUser(next);
       setAuthReady(true);
     }
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    let authEventVersion = 0;
+    const { data: { subscription } } = auth.onAuthStateChange((_event, session) => {
+      authEventVersion += 1;
       applyUser(session?.user ?? null);
     });
-    void supabase.auth.getUser().then(({ data }) => {
-      applyUser(data.user ?? null);
-    }).catch(() => applyUser(null));
-    return () => subscription.unsubscribe();
+    function syncUser() {
+      const version = authEventVersion;
+      void auth.getUser().then(({ data }) => {
+        if (version === authEventVersion) applyUser(data.user ?? null);
+      }).catch(() => {
+        if (version === authEventVersion) applyUser(null);
+      });
+    }
+    function syncWhenVisible() {
+      if (document.visibilityState === "visible") syncUser();
+    }
+    window.addEventListener("focus", syncUser);
+    document.addEventListener("visibilitychange", syncWhenVisible);
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener("focus", syncUser);
+      document.removeEventListener("visibilitychange", syncWhenVisible);
+    };
   }, []);
 
   async function reload(includeMeta = true) {

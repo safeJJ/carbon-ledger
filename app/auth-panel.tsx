@@ -15,7 +15,7 @@ export function AuthPanel() {
   async function submit(event: FormEvent) {
     event.preventDefault();
     const supabase = getSupabase();
-    if (!supabase) return;
+    if (!supabase) { setError("ยังไม่ได้ตั้งค่า Supabase สำหรับเว็บนี้"); return; }
     setBusy(true); setError(""); setMessage("");
     try {
       if (mode === "signin") {
@@ -30,7 +30,9 @@ export function AuthPanel() {
         if (!data.session) setMessage("ส่งคำขอยืนยันบัญชีแล้ว กรุณาตรวจอีเมลก่อนเข้าสู่ระบบ");
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "ดำเนินการไม่สำเร็จ กรุณาลองใหม่");
+      setError(cause instanceof Error && cause.message === "Invalid login credentials"
+        ? "อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบแล้วลองอีกครั้ง"
+        : cause instanceof Error ? cause.message : "ดำเนินการไม่สำเร็จ กรุณาลองใหม่");
     } finally { setBusy(false); }
   }
 
