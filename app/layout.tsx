@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Noto_Sans_Thai } from "next/font/google";
+import { Noto_Sans_Thai, Poppins } from "next/font/google";
 import "./globals.css";
 
 const notoSansThai = Noto_Sans_Thai({
@@ -8,12 +8,19 @@ const notoSansThai = Noto_Sans_Thai({
   variable: "--font-noto-sans-thai",
 });
 
+const poppins = Poppins({
+  subsets: ["latin"],
+  weight: ["400", "600", "700"],
+  display: "swap",
+  variable: "--font-poppins",
+});
+
 export const metadata: Metadata = {
   title: "บัญชีคาร์บอนองค์กร | Carbon Ledger",
   description: "บันทึกและคำนวณการปล่อยก๊าซเรือนกระจกขององค์กรตามแบบฟอร์ม Fr-01 ถึง Fr-05",
   icons: {
-    icon: "/favicon.svg?v=2",
-    shortcut: "/favicon.svg?v=2",
+    icon: "/favicon.svg?v=3",
+    shortcut: "/favicon.svg?v=3",
   },
 };
 
@@ -23,7 +30,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="th" className={notoSansThai.variable}>
+    <html lang="th" className={`${notoSansThai.variable} ${poppins.variable}`}>
       <body className="antialiased">{children}</body>
     </html>
   );
