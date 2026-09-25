@@ -2,6 +2,13 @@
 
 เว็บบันทึกและคำนวณ Carbon Footprint of Organization (CFO) สำหรับหลายบัญชี พัฒนาด้วย Next.js และ Supabase และเผยแพร่ที่ https://carbon-ledger-sigma.vercel.app บน Vercel Hobby
 
+## ภาพรวมสำหรับผู้ดูผลงาน
+
+- **ปัญหาที่แก้:** รวบรวมกิจกรรมขององค์กร เลือกค่า Emission Factor (EF) ที่ใช้งาน และคำนวณผลแยกตาม Scope กับช่วงปี
+- **เส้นทางใช้งาน:** ตั้งค่าข้อมูลองค์กร → เลือกค่า EF → บันทึกกิจกรรม → ดูแดชบอร์ดและส่งออกข้อมูล
+- **เทคโนโลยี:** Next.js, TypeScript, Supabase Auth/Postgres (Row Level Security) และ Vercel
+- **ทดลองใช้งาน:** [Carbon Ledger](https://carbon-ledger-sigma.vercel.app/) โดยสมัครบัญชีของตนเองและใช้ข้อมูลจำลอง
+
 ## เริ่มใช้งาน
 
 1. สร้าง Supabase project และรัน SQL ใน `supabase/migrations/` ตามลำดับ
@@ -11,6 +18,13 @@
 5. ผู้ใช้สมัครด้วยอีเมลและรหัสผ่านแล้วเริ่มบันทึกข้อมูลได้ทันที ปัจจุบันปิดการยืนยันอีเมลเพื่อใช้งานโดยไม่ต้องมี SMTP ผู้ใช้จึงต้องเก็บรหัสผ่านเอง เพราะระบบกู้รหัสผ่านผ่านอีเมลของคนนอกทีมยังใช้ไม่ได้ หากต้องการยืนยันอีเมลและกู้รหัสผ่าน ให้ตั้งบริการ SMTP ของตนเองใน Supabase แล้วเปิด Confirm email อีกครั้ง
 
 สำหรับทดสอบในเครื่อง ให้คัดลอก `.env.example` เป็น `.env.local` แล้วใส่ URL และ publishable key ของโปรเจกต์ Supabase (`.env.local` ถูก Git ignore) รัน SQL ใน `supabase/migrations/` ตามลำดับ และเพิ่ม `http://localhost:3000/**` ใน Authentication > URL Configuration > Redirect URLs หากเปิดการยืนยันอีเมล จากนั้นรัน `pnpm install` และ `pnpm dev` แล้วเปิด `http://localhost:3000`
+
+## ข้อมูลที่เผยแพร่และการตั้งค่า
+
+- `.env.example` มีเพียงชื่อ environment variables และค่าตัวอย่าง; ใส่ค่าที่ใช้งานจริงใน `.env.local` หรือ Environment Variables ของ Vercel เท่านั้น ห้าม commit รหัสผ่าน, secret key หรือ service role key
+- ค่าที่ขึ้นต้นด้วย `NEXT_PUBLIC_` จะถูกส่งไปยังเบราว์เซอร์ Supabase URL และ publishable key จึงไม่ใช่เครื่องมือควบคุมสิทธิ์; ข้อมูลผู้ใช้ต้องอาศัย Supabase Auth และ RLS ตาม migration
+- ไม่มีข้อมูลกิจกรรมจริงของบริษัทหรือข้อมูลจากระบบเดิมใน repo นี้ ข้อมูลแต่ละบัญชีอยู่ใน Supabase และถูกจำกัดสิทธิ์ตาม `user_id`
+- `app/factors.json` เป็นรายการค่า EF ที่นำมาใช้ในตัวอย่าง โดยอ้างอิง [ตาราง Emission Factor (CFO) ของ TGO](https://thaicarbonlabel.tgo.or.th/index.php?lang=TH&mod=YjNKbllXNXBlbUYwYVc5dVgyVnRhWE56YVc5dQ) และระบุแหล่งอ้างอิงในแต่ละรายการ โปรดตรวจค่าฉบับล่าสุดจาก TGO ก่อนใช้ออกรายงานทางการ สิทธิ์ในข้อมูลต้นทางเป็นของผู้เผยแพร่ต้นทาง
 
 ## โครงสร้างข้อมูลและสิทธิ์
 
