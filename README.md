@@ -10,7 +10,7 @@
 4. เชื่อม GitHub repo กับ Vercel โดยเลือก Framework Preset: Next.js แล้ว Deploy
 5. ผู้ใช้สมัครด้วยอีเมลและรหัสผ่านแล้วเริ่มบันทึกข้อมูลได้ทันที ปัจจุบันปิดการยืนยันอีเมลเพื่อใช้งานโดยไม่ต้องมี SMTP ผู้ใช้จึงต้องเก็บรหัสผ่านเอง เพราะระบบกู้รหัสผ่านผ่านอีเมลของคนนอกทีมยังใช้ไม่ได้ หากต้องการยืนยันอีเมลและกู้รหัสผ่าน ให้ตั้งบริการ SMTP ของตนเองใน Supabase แล้วเปิด Confirm email อีกครั้ง
 
-สำหรับทดสอบในเครื่อง ให้คัดลอก `.env.example` เป็น `.env.local` แล้วใส่ URL และ publishable key ของโปรเจกต์ Supabase จากนั้นรัน `pnpm install` และ `pnpm dev`
+สำหรับทดสอบในเครื่อง ให้คัดลอก `.env.example` เป็น `.env.local` แล้วใส่ URL และ publishable key ของโปรเจกต์ Supabase (`.env.local` ถูก Git ignore) รัน SQL ใน `supabase/migrations/` ตามลำดับ และเพิ่ม `http://localhost:3000/**` ใน Authentication > URL Configuration > Redirect URLs หากเปิดการยืนยันอีเมล จากนั้นรัน `pnpm install` และ `pnpm dev` แล้วเปิด `http://localhost:3000`
 
 ## โครงสร้างข้อมูลและสิทธิ์
 
