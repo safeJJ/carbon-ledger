@@ -4,10 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, ArrowDownRight, ArrowRight, ArrowUpRight, Building2, ChartNoAxesColumn, Check,
   ChevronDown, ChevronRight, CircleHelp, ClipboardList, Database, Download,
-  FileText, Info, Leaf, Plus, Save, Search, SlidersHorizontal, Trash2, TriangleAlert,
+  FileText, Info, Leaf, Menu, Plus, Save, Search, SlidersHorizontal, Trash2, TriangleAlert, X,
   Zap,
 } from "lucide-react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { NativeSelect } from "@/components/ui/native-select";
 import factors from "./factors.json";
 import { AuthPanel } from "./auth-panel";
@@ -81,6 +81,7 @@ export default function Home() {
   const recordsRef = useRef<HTMLElement | null>(null);
   const pendingRecordsFocus = useRef(false);
   const [tab, setTab] = useState("overview");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profile, setProfile] = useState<Profile>({});
   const [sig, setSig] = useState<Significance>({});
   const [savedMeta, setSavedMeta] = useState(() => JSON.stringify({ profile: {}, sig: {} }));
@@ -399,7 +400,7 @@ export default function Home() {
         return next;
       });
     }
-    setTab(value); window.scrollTo({ top: 0, behavior: "smooth" });
+    setTab(value); setSidebarOpen(false); window.scrollTo({ top: 0, behavior: "smooth" });
   };
   const openEntries = (scope = "all", period = "all", category = "all", onlyMismatches = false) => {
     pendingRecordsFocus.current = true;
@@ -417,28 +418,24 @@ export default function Home() {
   if (!user) return <AuthPanel />;
 
   return <main className="site">
-    <aside className="rail">
-      <div className="brand"><span className="mark"><Leaf size={21} /></span><span><strong>Carbon Ledger</strong><small>บัญชีคาร์บอนองค์กร</small></span></div>
-      <div className="rail-section-label">ขั้นตอนการทำงาน</div>
-      <div className="rail-steps">
-        <button className={tab === "organization" ? "is-active" : undefined} aria-current={tab === "organization" ? "page" : undefined} onClick={() => go("organization")}><span className={setup[0] ? "step-done" : "step-number"}>{setup[0] ? <Check size={15} /> : "01"}</span><span>ข้อมูลองค์กร<small>ระบุชื่อและปีรายงาน</small></span></button>
-        <button className={tab === "factors" ? "is-active" : undefined} aria-current={tab === "factors" ? "page" : undefined} onClick={() => go("factors")}><span className={setup[1] ? "step-done" : "step-number"}>{setup[1] ? <Check size={15} /> : "02"}</span><span>ค่า EF ที่ใช้<small>เลือกปัจจัยของบริษัท</small></span></button>
-        <button className={tab === "activities" ? "is-active" : undefined} aria-current={tab === "activities" ? "page" : undefined} onClick={() => go("activities")}><span className={setup[2] ? "step-done" : "step-number"}>{setup[2] ? <Check size={15} /> : "03"}</span><span>บันทึกกิจกรรม<small>กรอกปริมาณจริง</small></span></button>
-      </div>
+    <aside className={`rail${sidebarOpen ? " is-open" : ""}`}>
+      <div className="brand"><span className="mark"><Leaf size={21} /></span><span><strong>Carbon Ledger</strong><small>บัญชีคาร์บอนองค์กร</small></span><button type="button" className="rail-close" aria-label="ปิดเมนู" onClick={() => setSidebarOpen(false)}><X size={20} /></button></div>
+      <div className="rail-section-label">เมนูหลัก</div>
+      <nav id="primary-navigation" className="rail-steps" aria-label="หน้าของแบบฟอร์ม">
+        <button type="button" className={tab === "overview" ? "is-active" : undefined} aria-current={tab === "overview" ? "page" : undefined} onClick={() => go("overview")}><ChartNoAxesColumn size={19} /><span>ภาพรวม</span></button>
+        <button type="button" className={tab === "activities" ? "is-active" : undefined} aria-current={tab === "activities" ? "page" : undefined} onClick={() => go("activities")}><ClipboardList size={19} /><span>รายการคำนวณ</span></button>
+        <button type="button" className={tab === "organization" ? "is-active" : undefined} aria-current={tab === "organization" ? "page" : undefined} onClick={() => go("organization")}><Building2 size={19} /><span>ข้อมูลองค์กร</span></button>
+        <button type="button" className={tab === "significance" ? "is-active" : undefined} aria-current={tab === "significance" ? "page" : undefined} onClick={() => go("significance")}><Leaf size={19} /><span>Scope 3</span></button>
+        <button type="button" className={tab === "factors" ? "is-active" : undefined} aria-current={tab === "factors" ? "page" : undefined} onClick={() => go("factors")}><Database size={19} /><span>ค่า EF</span></button>
+      </nav>
       <div className="rail-progress"><div><span>ความพร้อมของข้อมูล</span><strong>{completed}/3</strong></div><div className="progress-track"><span style={{ width: `${completed / 3 * 100}%` }} /></div></div>
       <div className="rail-bottom"><span className="source-dot" /> ข้อมูลส่วนตัวของบัญชีนี้</div>
     </aside>
+    {sidebarOpen && <button type="button" className="rail-backdrop" aria-label="ปิดเมนู" onClick={() => setSidebarOpen(false)} />}
     <div className="workspace">
-      <header className="topbar"><div className="crumb"><span>บัญชีคาร์บอน</span><ChevronRight size={15} /><b>{profile.organization || "องค์กรของคุณ"}</b></div><div className="account-actions"><span className="privacy"><span className="source-dot" /> {user.email}</span><button className="signout" onClick={() => void signOut()}>ออกจากระบบ</button></div></header>
+      <header className="topbar"><button type="button" className="topbar-menu" aria-label="เปิดเมนู" aria-expanded={sidebarOpen} aria-controls="primary-navigation" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button><div className="crumb"><span>บัญชีคาร์บอน</span><ChevronRight size={15} /><b>{profile.organization || "องค์กรของคุณ"}</b></div><div className="account-actions"><span className="privacy"><span className="source-dot" /> {user.email}</span><button className="signout" onClick={() => void signOut()}>ออกจากระบบ</button></div></header>
       <Tabs value={tab} onValueChange={go} className="main-tabs">
         <div className="page-head"><div className="page-intro"><div className="eyebrow">CARBON FOOTPRINT OF ORGANIZATION</div><h1>{tab === "overview" ? "ภาพรวมการปล่อยก๊าซเรือนกระจก" : tab === "activities" ? "บันทึกกิจกรรม" : tab === "organization" ? "ข้อมูลองค์กร" : tab === "significance" ? "ประเมิน Scope 3" : "คลังค่า EF"}</h1><p className="page-description">{tab === "overview" ? "ดูผลรวมก่อน แล้วเจาะลงไปตรวจสอบแต่ละ Scope" : tab === "activities" ? "เลือก Scope และค่า EF ที่บันทึกไว้ แล้วกรอกปริมาณกิจกรรมจริง" : tab === "organization" ? "กำหนดปีรายงาน ขอบเขตองค์กร และข้อมูลประกอบการคำนวณ" : tab === "significance" ? "ประเมินหมวดที่มีนัยสำคัญก่อนบันทึกกิจกรรม Scope 3" : "เลือกค่า EF ที่องค์กรใช้ และบันทึกเพื่อให้ปรากฏในหน้ากิจกรรม"}</p><div className="page-context">{profile.organization || "ยังไม่ระบุองค์กร"}<span aria-hidden="true">·</span>{profile.reportingYear || "ยังไม่กำหนดปีรายงาน"}</div></div>{tab === "overview" && <div className="head-actions">{entries.length > 0 && <button className="btn ghost export-button" onClick={exportCSV}><Download size={17} /> ส่งออก CSV</button>}{completed === 3 && <button className="btn primary" onClick={() => { resetDraft(); go("activities"); }}><Plus size={18} /> เพิ่มรายการ</button>}</div>}</div>
-        <TabsList className="navigation" aria-label="หน้าของแบบฟอร์ม">
-          <TabsTrigger value="overview"><ChartNoAxesColumn size={17} /> ภาพรวม</TabsTrigger>
-          <TabsTrigger value="activities" aria-label="รายการคำนวณ"><ClipboardList size={17} /><span className="nav-full">รายการคำนวณ</span><span className="nav-short">รายการ</span></TabsTrigger>
-          <TabsTrigger value="organization" aria-label="ข้อมูลองค์กร"><Building2 size={17} /><span className="nav-full">ข้อมูลองค์กร</span><span className="nav-short">องค์กร</span></TabsTrigger>
-          <TabsTrigger value="significance"><Leaf size={17} /> Scope 3</TabsTrigger>
-          <TabsTrigger value="factors"><Database size={17} /> ค่า EF</TabsTrigger>
-        </TabsList>
         {failure && <div className="message error" role="alert"><TriangleAlert size={18} /><span>{failure}</span><button onClick={() => setFailure("")}>ปิด</button></div>}
         {notice && (!metaDirty || !["บันทึกข้อมูลเรียบร้อย", "บันทึกค่า EF ที่บริษัทเลือกใช้แล้ว"].includes(notice)) && <div className="message success" role="status"><Check size={18} /><span>{notice}</span><button onClick={() => setNotice("")}>ปิด</button></div>}
         {metaDirty && <div className="message pending" role="status"><Info size={18} /><span>มีการเปลี่ยนแปลงที่ยังไม่บันทึกในข้อมูลองค์กร, Scope 3 หรือค่า EF</span><button disabled={saving} onClick={() => void saveMeta()}>{saving ? "กำลังบันทึก…" : "บันทึกตอนนี้"}</button></div>}
