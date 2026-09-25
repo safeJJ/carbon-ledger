@@ -48,3 +48,19 @@ supabase/.temp/
 /.codex/
 /outputs/
 /work/
+
+# Local credentials, database snapshots and exports
+*.key
+*.p12
+*.pfx
+*.sqlite
+*.sqlite3
+*.db
+*.bak
+*.dump
+*service-account*.json
+*credentials*.json
+/backup/
+/backups/
+/upload/
+/uploads/
