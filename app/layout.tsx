@@ -12,8 +12,8 @@ export const metadata: Metadata = {
   title: "บัญชีคาร์บอนองค์กร | Carbon Ledger",
   description: "บันทึกและคำนวณการปล่อยก๊าซเรือนกระจกขององค์กรตามแบบฟอร์ม Fr-01 ถึง Fr-05",
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
+    icon: "/favicon.svg?v=2",
+    shortcut: "/favicon.svg?v=2",
   },
 };
 
