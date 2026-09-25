@@ -423,6 +423,7 @@ footer { padding: 0 clamp(20px, 3.5vw, 54px) 24px; color: #33698D; font-size: .7
 /* Hierarchy: quiet shell → one lead result or next step → supporting cards. */
 body { line-height: 1.5; font-family: var(--font-poppins), var(--font-noto-sans-thai), Tahoma, Arial, sans-serif; }
 .auth-page, .site { background: #272C2D; }
+.auth-loading { color: #C4DCED; background: #272C2D; }
 .auth-page { color: #272C2D; }
 .auth-hero { background: #003050; color: #FFFFFF; padding: clamp(32px, 5vw, 96px); }
 .auth-hero .auth-overline, .auth-hero p { color: #C4DCED; }
@@ -470,6 +471,7 @@ body { line-height: 1.5; font-family: var(--font-poppins), var(--font-noto-sans-
 .btn.secondary:hover { background: #F5F7FA; }
 .head-actions .btn.ghost { color: #FFFFFF; background: #272C2D; border-color: #54819F; }
 .head-actions .btn.ghost:hover { background: #003050; }
+.head-actions .btn.primary, .section-line > .btn.primary { border-color: #C4DCED; }
 .navigation { gap: 8px; padding-bottom: 16px; margin-bottom: 32px; border-color: #54819F; }
 .navigation button { height: 44px; border-radius: 100px; padding: 8px 16px; color: #C4DCED; font-size: .875rem; }
 .navigation button:hover { background: #003050; color: #FFFFFF; }
@@ -534,6 +536,7 @@ body { line-height: 1.5; font-family: var(--font-poppins), var(--font-noto-sans-
 .scope-intro, .catalog-settings { background: #F5F7FA; border: 1px solid #C4DCED; border-radius: 8px; }
 .factor-table th { color: #004370; }
 .factor-table tbody tr:hover { background: #F5F7FA; }
+.catalog-note { color: #C4DCED; }
 footer { color: #C4DCED; font-size: .75rem; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid #C4DCED; outline-offset: 2px; }
 @media (max-width: 1240px) {
@@ -556,5 +559,5 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .main-metric strong { font-size: 2.5rem; }
   .metric small { font-size: .75rem; }
   .panel { padding: 16px; }
-  .section-line { align-items: flex-start; }
+  .section-line { align-items: flex-start; flex-direction: column; gap: 8px; }
 }
